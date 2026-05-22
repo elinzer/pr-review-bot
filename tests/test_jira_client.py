@@ -27,3 +27,13 @@ def test_lowercase_keys_ignored():
 
 def test_multi_letter_project_key():
     assert extract_key("DATA-42-pipeline", "") == "DATA-42"
+
+
+def test_version_strings_not_matched():
+    assert extract_key("fix/V2-api", "") is None
+    assert extract_key("", "Update PY39-1 compat") is None
+
+
+def test_none_body_safe():
+    assert extract_key("main", None) is None
+    assert extract_key(None, "ABC-123") == "ABC-123"
