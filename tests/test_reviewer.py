@@ -246,3 +246,55 @@ def test_reviewer_call_empty_content_raises():
     r = Reviewer(client=_Empty(), model="claude-opus-4-7")
     with pytest.raises(ValueError, match="empty content"):
         r.review(_ctx(), None)
+
+
+def test_self_critique_filters_dropped(monkeypatch):
+    review = Review(
+        summary="s",
+        comments=[
+            _cmt(quote="return x"),
+            _cmt(line=99, quote="not in diff"),
+        ],
+    )
+    critique_resp = json.dumps({"keep": [0], "drop": [{"index": 1, "reason": "bogus"}]})
+    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-4-7")
+    out = r.self_critique(review, _ctx())
+    assert len(out.comments) == 1
+    assert out.comments[0].evidence.quoted_code == "return x"
+
+
+def test_self_critique_empty_review_returns_empty():
+    r = Reviewer(client=_FakeAnthropic("{}"), model="claude-opus-4-7")
+    out = r.self_critique(Review(summary="s", comments=[]), _ctx())
+    assert out.comments == []
+
+
+class _SeqAnthropic:
+    """Returns successive responses for each .create call."""
+    def __init__(self, *texts):
+        self._texts = list(texts)
+        self._i = 0
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        t = self._texts[self._i]
+        self._i += 1
+        return SimpleNamespace(content=[SimpleNamespace(text=t)])
+
+
+def test_review_pr_runs_pipeline_end_to_end():
+    review_resp = json.dumps({
+        "summary": "Adds null check",
+        "comments": [{
+            "file": "app/login.py", "line": 3, "severity": "bug",
+            "body": "x referenced before guard",
+            "evidence": {"quoted_code": "return x", "citation": "app/login.py:3-3"},
+        }],
+    })
+    critique_resp = json.dumps({"keep": [0], "drop": []})
+    client = _SeqAnthropic(review_resp, critique_resp)
+    r = Reviewer(client=client, model="claude-opus-4-7")
+
+    final = r.review_pr(_ctx(), None)
+    assert final.summary.startswith("Adds")
+    assert len(final.comments) == 1

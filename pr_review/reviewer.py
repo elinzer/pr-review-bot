@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from pr_review.models import Comment, Evidence, JiraContext, PRContext, Review
-from pr_review.prompt import build_review_messages
+from pr_review.prompt import build_critique_messages, build_review_messages
 
 
 MAX_COMMENTS = 5
@@ -140,3 +140,21 @@ class Reviewer:
         msgs = build_review_messages(pr, jira)
         raw = self._call(msgs["system"], msgs["messages"])
         return parse_review_json(raw)
+
+    def self_critique(self, review: Review, pr: PRContext) -> Review:
+        if not review.comments:
+            return review
+        msgs = build_critique_messages(pr, review)
+        raw = self._call(msgs["system"], msgs["messages"])
+        try:
+            data = json.loads(_extract_json(raw))
+        except json.JSONDecodeError:
+            return Review(summary=review.summary, comments=[])
+        keep = set(data.get("keep", []))
+        filtered = [c for i, c in enumerate(review.comments) if i in keep]
+        return Review(summary=review.summary, comments=filtered)
+
+    def review_pr(self, pr: PRContext, jira: Optional[JiraContext]) -> Review:
+        draft = self.review(pr, jira)
+        critiqued = self.self_critique(draft, pr)
+        return validate(critiqued, pr)
