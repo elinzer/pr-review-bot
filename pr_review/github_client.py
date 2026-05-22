@@ -30,3 +30,18 @@ class GitHubClient:
                 branch=pr.head.ref,
             ))
         return out
+
+    def get_pr_context(self, summary: PullRequestSummary) -> PRContext:
+        repo = self.github.get_repo(summary.repo_full_name)
+        pr = repo.get_pull(summary.number)
+        files = []
+        for f in pr.get_files():
+            if not f.patch:
+                continue
+            files.append(FileChange(
+                path=f.filename,
+                patch=f.patch,
+                additions=f.additions,
+                deletions=f.deletions,
+            ))
+        return PRContext(summary=summary, files=files)

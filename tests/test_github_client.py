@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 from pr_review.github_client import GitHubClient
+from pr_review.models import PullRequestSummary
 
 
 def _fake_issue(repo_full_name, number, title, html_url, body, head_sha, branch):
@@ -38,3 +39,33 @@ def test_list_team_review_requests_returns_summaries(mocker):
     assert "review-requested:o/team" in q
     assert "is:pr" in q
     assert "is:open" in q
+
+
+def test_get_pr_context_returns_files():
+    gh = MagicMock()
+    repo = MagicMock()
+    pr = MagicMock()
+    file_a = MagicMock()
+    file_a.filename = "app/a.py"
+    file_a.patch = "@@ -1,1 +1,2 @@\n line\n+new"
+    file_a.additions = 1
+    file_a.deletions = 0
+    file_b = MagicMock()
+    file_b.filename = "app/b.py"
+    file_b.patch = None
+    file_b.additions = 0
+    file_b.deletions = 0
+    pr.get_files.return_value = [file_a, file_b]
+    repo.get_pull.return_value = pr
+    gh.get_repo.return_value = repo
+
+    client = GitHubClient(github=gh, team_slug="o/team")
+    summary = PullRequestSummary(
+        url="https://github.com/o/r/pull/1", repo_full_name="o/r", number=1,
+        title="t", head_sha="s", body="b", branch="br",
+    )
+    ctx = client.get_pr_context(summary)
+    assert len(ctx.files) == 1
+    assert ctx.files[0].path == "app/a.py"
+    gh.get_repo.assert_called_with("o/r")
+    repo.get_pull.assert_called_with(1)
