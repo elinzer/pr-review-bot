@@ -65,3 +65,10 @@ def test_state_file_is_valid_json(tmp_path):
     data = json.loads(path.read_text())
     assert "reviews" in data
     assert data["reviews"]["https://gh/x/1"]["review_id"] == 99
+
+
+def test_corrupt_file_returns_empty(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text("this is not json {{{{")
+    s = State(path)
+    assert s.is_reviewed("https://gh/x/1") is False
