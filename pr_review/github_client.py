@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from github import Github
 
-from pr_review.models import FileChange, PRContext, PullRequestSummary
+from pr_review.models import Comment, FileChange, PRContext, PullRequestSummary, Review
 
 
 @dataclass
@@ -45,3 +45,30 @@ class GitHubClient:
                 deletions=f.deletions,
             ))
         return PRContext(summary=summary, files=files)
+
+    def create_pending_review(self, summary: PullRequestSummary, review: Review) -> int:
+        repo = self.github.get_repo(summary.repo_full_name)
+        pr = repo.get_pull(summary.number)
+        comments = [
+            {
+                "path": c.file,
+                "line": c.line,
+                "side": "RIGHT",
+                "body": _format_comment_body(c),
+            }
+            for c in review.comments
+        ]
+        created = pr.create_review(
+            commit=repo.get_commit(summary.head_sha),
+            body=review.summary,
+            comments=comments,
+        )
+        return created.id
+
+
+def _format_comment_body(c: Comment) -> str:
+    prefix = "**[bug]**" if c.severity == "bug" else "**[question]**"
+    body = f"{prefix} {c.body}\n\n_Evidence:_ `{c.evidence.citation}`"
+    if c.evidence.quoted_code:
+        body += f"\n\n```\n{c.evidence.quoted_code}\n```"
+    return body

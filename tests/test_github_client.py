@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 from pr_review.github_client import GitHubClient
-from pr_review.models import PullRequestSummary
+from pr_review.models import Comment, Evidence, PullRequestSummary, Review
 
 
 def _fake_issue(repo_full_name, number, title, html_url, body, head_sha, branch):
@@ -69,3 +69,62 @@ def test_get_pr_context_returns_files():
     assert ctx.files[0].path == "app/a.py"
     gh.get_repo.assert_called_with("o/r")
     repo.get_pull.assert_called_with(1)
+
+
+def test_create_pending_review_posts_to_github():
+    gh = MagicMock()
+    repo = MagicMock()
+    pr = MagicMock()
+    created = MagicMock()
+    created.id = 9999
+    pr.create_review.return_value = created
+    repo.get_pull.return_value = pr
+    gh.get_repo.return_value = repo
+
+    client = GitHubClient(github=gh, team_slug="o/team")
+    summary = PullRequestSummary(
+        url="https://github.com/o/r/pull/1", repo_full_name="o/r", number=1,
+        title="t", head_sha="abc", body="b", branch="br",
+    )
+    review = Review(
+        summary="all good",
+        comments=[
+            Comment(
+                file="app/a.py", line=2, severity="bug",
+                body="watch this",
+                evidence=Evidence(quoted_code="x", citation="app/a.py:2"),
+            )
+        ],
+    )
+    review_id = client.create_pending_review(summary, review)
+    assert review_id == 9999
+
+    kwargs = pr.create_review.call_args.kwargs
+    assert kwargs.get("commit_id") == "abc" or (kwargs.get("commit") is not None)
+    assert "event" not in kwargs or kwargs["event"] is None
+    assert kwargs["body"] == "all good"
+    assert len(kwargs["comments"]) == 1
+    c0 = kwargs["comments"][0]
+    assert c0["path"] == "app/a.py"
+    assert c0.get("line") == 2 or c0.get("position") == 2
+
+
+def test_create_pending_review_empty_uses_summary_only():
+    gh = MagicMock()
+    repo = MagicMock()
+    pr = MagicMock()
+    created = MagicMock(); created.id = 1
+    pr.create_review.return_value = created
+    repo.get_pull.return_value = pr
+    gh.get_repo.return_value = repo
+
+    client = GitHubClient(github=gh, team_slug="o/team")
+    summary = PullRequestSummary(
+        url="u", repo_full_name="o/r", number=1, title="t",
+        head_sha="abc", body="", branch="b",
+    )
+    review = Review(summary="nothing high-confidence", comments=[])
+    client.create_pending_review(summary, review)
+    kwargs = pr.create_review.call_args.kwargs
+    assert kwargs["body"] == "nothing high-confidence"
+    assert kwargs["comments"] == []
