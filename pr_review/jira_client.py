@@ -1,8 +1,11 @@
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
 
 import requests
+
+log = logging.getLogger(__name__)
 
 from pr_review.models import JiraContext
 
@@ -52,9 +55,15 @@ class JiraClient:
             )
         except requests.RequestException:
             return None
+        if r.status_code == 401 or r.status_code == 403:
+            log.warning("Jira auth failed (HTTP %d) for %s — check JIRA_API_TOKEN", r.status_code, key)
+            return None
         if r.status_code != 200:
             return None
-        data = r.json()
+        try:
+            data = r.json()
+        except ValueError:
+            return None
         fields = data.get("fields", {})
         description = _adf_to_text(fields.get("description")) or ""
         ac = fields.get("customfield_10000")

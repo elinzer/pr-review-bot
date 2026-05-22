@@ -1,4 +1,5 @@
 import pytest
+import requests
 
 from pr_review.jira_client import JiraClient, extract_key
 
@@ -80,3 +81,29 @@ def test_fetch_ticket_returns_none_on_404(jira_client, requests_mock):
 def test_fetch_ticket_none_key():
     c = JiraClient("https://x", "a", "t")
     assert c.fetch_ticket(None) is None
+
+
+def test_adf_description_flattened(jira_client, requests_mock):
+    adf_desc = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "hello "},
+                {"type": "text", "text": "world"}
+            ]}
+        ]
+    }
+    requests_mock.get(
+        "https://x.atlassian.net/rest/api/3/issue/ABC-2",
+        json={"key": "ABC-2", "fields": {"summary": "t", "description": adf_desc}},
+    )
+    ctx = jira_client.fetch_ticket("ABC-2")
+    assert ctx.description == "hello world"
+
+
+def test_fetch_ticket_returns_none_on_network_error(jira_client, requests_mock):
+    requests_mock.get(
+        "https://x.atlassian.net/rest/api/3/issue/NET-1",
+        exc=requests.exceptions.ConnectionError("unreachable"),
+    )
+    assert jira_client.fetch_ticket("NET-1") is None
