@@ -16,6 +16,7 @@ Rules — non-negotiable:
    - `question`: clarification, not an assertion.
 5. **No style commentary.** Naming, formatting, ordering, abstractions — out of scope.
 6. **At most 5 comments.** Prioritize the highest-impact issues.
+7. **Line numbers** refer to the line number in the *new* version of the file (the right side of the unified diff — what you'd see on GitHub's "Files changed" tab).
 
 Output JSON, and nothing else, conforming exactly to this schema:
 
@@ -65,9 +66,7 @@ def _format_files(pr: PRContext) -> str:
     return "\n".join(parts)
 
 
-def _format_jira(jira: Optional[JiraContext]) -> str:
-    if jira is None:
-        return "No Jira context available."
+def _format_jira(jira: JiraContext) -> str:
     return (
         f"Jira ticket: {jira.key}\n"
         f"Title: {jira.title}\n"

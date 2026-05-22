@@ -45,7 +45,7 @@ def test_review_messages_with_jira():
 
 def test_review_messages_jira_omitted_when_none():
     msgs = build_review_messages(_pr_context(), None)
-    assert "Jira" not in msgs["messages"][0]["content"] or "no Jira" in msgs["messages"][0]["content"].lower()
+    assert "Jira" not in msgs["messages"][0]["content"]
 
 
 def test_critique_messages_include_review_and_diff():
