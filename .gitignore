@@ -3,6 +3,8 @@
 !.env.example
 state.json
 *.log
+.DS_Store
+**/.DS_Store
 __pycache__/
 *.pyc
 .pytest_cache/
