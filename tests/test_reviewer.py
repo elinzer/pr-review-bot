@@ -248,7 +248,7 @@ def test_reviewer_call_empty_content_raises():
         r.review(_ctx(), None)
 
 
-def test_self_critique_filters_dropped(monkeypatch):
+def test_self_critique_filters_dropped():
     review = Review(
         summary="s",
         comments=[
@@ -298,3 +298,37 @@ def test_review_pr_runs_pipeline_end_to_end():
     final = r.review_pr(_ctx(), None)
     assert final.summary.startswith("Adds")
     assert len(final.comments) == 1
+
+
+def test_self_critique_all_drop_returns_empty_comments():
+    review = Review(
+        summary="summary",
+        comments=[_cmt(quote="return x")],
+    )
+    critique_resp = json.dumps({"keep": [], "drop": [{"index": 0, "reason": "bogus"}]})
+    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-4-7")
+    out = r.self_critique(review, _ctx())
+    assert out.comments == []
+    assert out.summary == "summary"
+
+
+def test_self_critique_string_indices_tolerated():
+    review = Review(
+        summary="s",
+        comments=[_cmt(quote="return x")],
+    )
+    critique_resp = json.dumps({"keep": ["0"], "drop": []})
+    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-4-7")
+    out = r.self_critique(review, _ctx())
+    assert len(out.comments) == 1
+
+
+def test_self_critique_malformed_json_returns_empty():
+    review = Review(
+        summary="s",
+        comments=[_cmt(quote="return x")],
+    )
+    r = Reviewer(client=_FakeAnthropic("not json at all"), model="claude-opus-4-7")
+    out = r.self_critique(review, _ctx())
+    assert out.comments == []
+    assert out.summary == "s"

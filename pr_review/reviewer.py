@@ -150,7 +150,12 @@ class Reviewer:
             data = json.loads(_extract_json(raw))
         except json.JSONDecodeError:
             return Review(summary=review.summary, comments=[])
-        keep = set(data.get("keep", []))
+        keep = set()
+        for x in data.get("keep", []):
+            try:
+                keep.add(int(x))
+            except (ValueError, TypeError):
+                continue
         filtered = [c for i, c in enumerate(review.comments) if i in keep]
         return Review(summary=review.summary, comments=filtered)
 
