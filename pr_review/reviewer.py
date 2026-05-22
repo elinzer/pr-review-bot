@@ -26,16 +26,20 @@ def _line_in_hunks(line: int, patch: str) -> bool:
     return False
 
 
+def _new_file_text(patch: str) -> str:
+    lines = []
+    for line in patch.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+") or line.startswith(" "):
+            lines.append(line[1:])
+    return "\n".join(lines)
+
+
 def _quote_in_patch(quote: str, patch: str) -> bool:
     if not quote:
         return False
-    if quote in patch:
-        return True
-    stripped_patch = "\n".join(
-        line[1:] if line and line[0] in "+- " else line
-        for line in patch.splitlines()
-    )
-    return quote in stripped_patch
+    return quote in _new_file_text(patch)
 
 
 def validate(review: Review, pr: PRContext) -> Review:

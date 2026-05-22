@@ -67,7 +67,7 @@ def test_validate_multiple_hunks():
         ctx,
     )
     assert len(out_valid_second.comments) == 1
-    out_invalid = validate(Review(summary="s", comments=[_cmt(line=30)]), ctx)
+    out_invalid = validate(Review(summary="s", comments=[_cmt(line=30, quote="return 2")]), ctx)
     assert out_invalid.comments == []
 
 
@@ -77,3 +77,62 @@ def test_validate_quote_match_strips_diff_prefix():
         _ctx(),
     )
     assert len(out.comments) == 1
+
+
+def test_validate_drops_quote_from_deleted_line():
+    patch = (
+        "@@ -1,3 +1,3 @@\n"
+        " def f():\n"
+        "-    old_unsafe = call()\n"
+        "+    new_safe = call()\n"
+        " print(x)"
+    )
+    ctx = _ctx(patch=patch)
+    out = validate(
+        Review(summary="s", comments=[_cmt(line=2, quote="old_unsafe")]),
+        ctx,
+    )
+    assert out.comments == []
+
+
+def test_validate_routes_multi_file_correctly():
+    patch_a = "@@ -1,1 +1,2 @@\n def a():\n+    a_added"
+    patch_b = "@@ -1,1 +1,2 @@\n def b():\n+    b_added"
+    pr = PRContext(
+        summary=PullRequestSummary(
+            url="u", repo_full_name="o/r", number=1, title="t",
+            head_sha="s", body="", branch="b",
+        ),
+        files=[
+            FileChange(path="a.py", patch=patch_a, additions=1, deletions=0),
+            FileChange(path="b.py", patch=patch_b, additions=1, deletions=0),
+        ],
+    )
+    bad = Comment(
+        file="a.py", line=2, severity="bug", body="x",
+        evidence=Evidence(quoted_code="b_added", citation="a.py:2"),
+    )
+    out = validate(Review(summary="s", comments=[bad]), pr)
+    assert out.comments == []
+
+    good = Comment(
+        file="a.py", line=2, severity="bug", body="x",
+        evidence=Evidence(quoted_code="a_added", citation="a.py:2"),
+    )
+    out = validate(Review(summary="s", comments=[good]), pr)
+    assert len(out.comments) == 1
+
+
+def test_validate_empty_patch_drops_all():
+    pr = PRContext(
+        summary=PullRequestSummary(
+            url="u", repo_full_name="o/r", number=1, title="t",
+            head_sha="s", body="", branch="b",
+        ),
+        files=[FileChange(path="x.py", patch="", additions=0, deletions=0)],
+    )
+    out = validate(Review(summary="s", comments=[Comment(
+        file="x.py", line=1, severity="bug", body="x",
+        evidence=Evidence(quoted_code="anything", citation="x.py:1"),
+    )]), pr)
+    assert out.comments == []
