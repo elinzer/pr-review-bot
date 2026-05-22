@@ -1,6 +1,10 @@
+import json
 import re
+from dataclasses import dataclass
+from typing import Optional
 
-from pr_review.models import Comment, PRContext, Review
+from pr_review.models import Comment, Evidence, JiraContext, PRContext, Review
+from pr_review.prompt import build_review_messages
 
 
 MAX_COMMENTS = 5
@@ -59,3 +63,60 @@ def validate(review: Review, pr: PRContext) -> Review:
             break
 
     return Review(summary=review.summary, comments=kept)
+
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _extract_json(text: str) -> str:
+    m = _JSON_FENCE_RE.search(text)
+    if m:
+        return m.group(1)
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        return text[first:last + 1]
+    return text
+
+
+def parse_review_json(raw: str) -> Review:
+    try:
+        data = json.loads(_extract_json(raw))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Could not parse review JSON: {e}") from e
+
+    comments = []
+    for c in data.get("comments", []):
+        ev = c.get("evidence", {})
+        comments.append(Comment(
+            file=c["file"],
+            line=int(c["line"]),
+            severity=c["severity"],
+            body=c["body"],
+            evidence=Evidence(
+                quoted_code=ev.get("quoted_code", ""),
+                citation=ev.get("citation", ""),
+            ),
+        ))
+    return Review(summary=data.get("summary", ""), comments=comments)
+
+
+@dataclass
+class Reviewer:
+    client: object
+    model: str
+    max_tokens: int = 8192
+
+    def _call(self, system: str, messages: list[dict]) -> str:
+        resp = self.client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system,
+            messages=messages,
+        )
+        return resp.content[0].text
+
+    def review(self, pr: PRContext, jira: Optional[JiraContext]) -> Review:
+        msgs = build_review_messages(pr, jira)
+        raw = self._call(msgs["system"], msgs["messages"])
+        return parse_review_json(raw)

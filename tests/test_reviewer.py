@@ -1,7 +1,12 @@
+import json
+from types import SimpleNamespace
+
+import pytest
+
 from pr_review.models import (
     Comment, Evidence, FileChange, PRContext, PullRequestSummary, Review,
 )
-from pr_review.reviewer import MAX_COMMENTS, validate
+from pr_review.reviewer import MAX_COMMENTS, Reviewer, parse_review_json, validate
 
 
 def _ctx(patch="@@ -1,3 +1,4 @@\n def f():\n-    return x\n+    if x is None: return None\n+    return x", path="app/login.py"):
@@ -136,3 +141,47 @@ def test_validate_empty_patch_drops_all():
         evidence=Evidence(quoted_code="anything", citation="x.py:1"),
     )]), pr)
     assert out.comments == []
+
+
+def test_parse_review_json_plain():
+    raw = json.dumps({
+        "summary": "ok",
+        "comments": [{
+            "file": "a.py", "line": 1, "severity": "bug", "body": "b",
+            "evidence": {"quoted_code": "q", "citation": "a.py:1"},
+        }],
+    })
+    r = parse_review_json(raw)
+    assert r.summary == "ok"
+    assert r.comments[0].file == "a.py"
+
+
+def test_parse_review_json_in_code_fence():
+    raw = "Sure! Here:\n```json\n" + json.dumps({"summary": "s", "comments": []}) + "\n```\n"
+    r = parse_review_json(raw)
+    assert r.summary == "s"
+    assert r.comments == []
+
+
+def test_parse_review_json_invalid_raises():
+    with pytest.raises(ValueError):
+        parse_review_json("not json at all")
+
+
+class _FakeAnthropic:
+    def __init__(self, text):
+        self._text = text
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        return SimpleNamespace(content=[SimpleNamespace(text=self._text)])
+
+
+def test_reviewer_review_calls_claude_and_parses():
+    fake_resp = json.dumps({
+        "summary": "Looks fine",
+        "comments": [],
+    })
+    r = Reviewer(client=_FakeAnthropic(fake_resp), model="claude-opus-4-7")
+    out = r.review(_ctx(), None)
+    assert out.summary == "Looks fine"
