@@ -1,4 +1,6 @@
-from pr_review.jira_client import extract_key
+import pytest
+
+from pr_review.jira_client import JiraClient, extract_key
 
 
 def test_extract_from_branch_prefix():
@@ -37,3 +39,44 @@ def test_version_strings_not_matched():
 def test_none_body_safe():
     assert extract_key("main", None) is None
     assert extract_key(None, "ABC-123") == "ABC-123"
+
+
+@pytest.fixture
+def jira_client():
+    return JiraClient(
+        base_url="https://x.atlassian.net",
+        email="a@b.com",
+        api_token="tok",
+    )
+
+
+def test_fetch_ticket_returns_context(jira_client, requests_mock):
+    requests_mock.get(
+        "https://x.atlassian.net/rest/api/3/issue/ABC-1",
+        json={
+            "key": "ABC-1",
+            "fields": {
+                "summary": "Add thing",
+                "description": "Body of the ticket",
+                "customfield_10000": "AC line 1\nAC line 2",
+            },
+        },
+    )
+    ctx = jira_client.fetch_ticket("ABC-1")
+    assert ctx is not None
+    assert ctx.key == "ABC-1"
+    assert ctx.title == "Add thing"
+    assert "Body" in ctx.description
+
+
+def test_fetch_ticket_returns_none_on_404(jira_client, requests_mock):
+    requests_mock.get(
+        "https://x.atlassian.net/rest/api/3/issue/MISSING-1",
+        status_code=404,
+    )
+    assert jira_client.fetch_ticket("MISSING-1") is None
+
+
+def test_fetch_ticket_none_key():
+    c = JiraClient("https://x", "a", "t")
+    assert c.fetch_ticket(None) is None

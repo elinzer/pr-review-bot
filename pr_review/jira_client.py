@@ -16,3 +16,52 @@ def extract_key(branch: Optional[str], body: Optional[str]) -> Optional[str]:
             if m:
                 return m.group(1)
     return None
+
+
+def _adf_to_text(node) -> str:
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, dict):
+        if node.get("type") == "text":
+            return node.get("text", "")
+        parts = [_adf_to_text(c) for c in node.get("content", [])]
+        return "".join(parts)
+    if isinstance(node, list):
+        return "".join(_adf_to_text(c) for c in node)
+    return ""
+
+
+@dataclass
+class JiraClient:
+    base_url: str
+    email: str
+    api_token: str
+
+    def fetch_ticket(self, key: Optional[str]) -> Optional[JiraContext]:
+        if not key:
+            return None
+        url = f"{self.base_url.rstrip('/')}/rest/api/3/issue/{key}"
+        try:
+            r = requests.get(
+                url,
+                auth=(self.email, self.api_token),
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+        except requests.RequestException:
+            return None
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        fields = data.get("fields", {})
+        description = _adf_to_text(fields.get("description")) or ""
+        ac = fields.get("customfield_10000")
+        acceptance = _adf_to_text(ac) if isinstance(ac, (dict, list)) else (ac or "")
+        return JiraContext(
+            key=data.get("key", key),
+            title=fields.get("summary", ""),
+            description=description,
+            acceptance_criteria=acceptance,
+        )
