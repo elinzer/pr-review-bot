@@ -66,17 +66,46 @@ def validate(review: Review, pr: PRContext) -> Review:
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+_VALID_SEVERITIES = {"bug", "question"}
 
 
 def _extract_json(text: str) -> str:
-    m = _JSON_FENCE_RE.search(text)
-    if m:
-        return m.group(1)
+    matches = _JSON_FENCE_RE.findall(text)
+    if matches:
+        return matches[-1]
     first = text.find("{")
     last = text.rfind("}")
     if first != -1 and last != -1 and last > first:
         return text[first:last + 1]
     return text
+
+
+def _parse_line(value) -> int:
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    head = s.split("-", 1)[0].strip()
+    return int(head)
+
+
+def _parse_comment(c: dict) -> Optional[Comment]:
+    try:
+        severity = c["severity"]
+        if severity not in _VALID_SEVERITIES:
+            return None
+        ev = c.get("evidence", {}) or {}
+        return Comment(
+            file=c["file"],
+            line=_parse_line(c["line"]),
+            severity=severity,
+            body=c["body"],
+            evidence=Evidence(
+                quoted_code=ev.get("quoted_code", ""),
+                citation=ev.get("citation", ""),
+            ),
+        )
+    except (KeyError, ValueError, TypeError):
+        return None
 
 
 def parse_review_json(raw: str) -> Review:
@@ -85,19 +114,8 @@ def parse_review_json(raw: str) -> Review:
     except json.JSONDecodeError as e:
         raise ValueError(f"Could not parse review JSON: {e}") from e
 
-    comments = []
-    for c in data.get("comments", []):
-        ev = c.get("evidence", {})
-        comments.append(Comment(
-            file=c["file"],
-            line=int(c["line"]),
-            severity=c["severity"],
-            body=c["body"],
-            evidence=Evidence(
-                quoted_code=ev.get("quoted_code", ""),
-                citation=ev.get("citation", ""),
-            ),
-        ))
+    raw_comments = data.get("comments", []) or []
+    comments = [c for c in (_parse_comment(rc) for rc in raw_comments) if c is not None]
     return Review(summary=data.get("summary", ""), comments=comments)
 
 
@@ -114,6 +132,8 @@ class Reviewer:
             system=system,
             messages=messages,
         )
+        if not resp.content:
+            raise ValueError("Anthropic returned empty content")
         return resp.content[0].text
 
     def review(self, pr: PRContext, jira: Optional[JiraContext]) -> Review:

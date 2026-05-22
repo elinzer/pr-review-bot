@@ -185,3 +185,64 @@ def test_reviewer_review_calls_claude_and_parses():
     r = Reviewer(client=_FakeAnthropic(fake_resp), model="claude-opus-4-7")
     out = r.review(_ctx(), None)
     assert out.summary == "Looks fine"
+
+
+def test_parse_review_json_drops_invalid_severity():
+    raw = json.dumps({
+        "summary": "s",
+        "comments": [
+            {"file": "a.py", "line": 1, "severity": "style", "body": "b",
+             "evidence": {"quoted_code": "q", "citation": "a.py:1"}},
+            {"file": "a.py", "line": 2, "severity": "bug", "body": "b",
+             "evidence": {"quoted_code": "q", "citation": "a.py:2"}},
+        ],
+    })
+    r = parse_review_json(raw)
+    assert len(r.comments) == 1
+    assert r.comments[0].severity == "bug"
+
+
+def test_parse_review_json_drops_malformed_comments():
+    raw = json.dumps({
+        "summary": "s",
+        "comments": [
+            {"file": "a.py", "severity": "bug", "body": "missing line"},
+            {"file": "a.py", "line": 5, "severity": "bug", "body": "ok",
+             "evidence": {"quoted_code": "q", "citation": "a.py:5"}},
+        ],
+    })
+    r = parse_review_json(raw)
+    assert len(r.comments) == 1
+    assert r.comments[0].line == 5
+
+
+def test_parse_review_json_tolerates_line_range():
+    raw = json.dumps({
+        "summary": "s",
+        "comments": [{
+            "file": "a.py", "line": "42-44", "severity": "bug", "body": "b",
+            "evidence": {"quoted_code": "q", "citation": "a.py:42-44"},
+        }],
+    })
+    r = parse_review_json(raw)
+    assert r.comments[0].line == 42
+
+
+def test_parse_review_json_prefers_last_fence():
+    raw = (
+        "Here's an example I shouldn't use: ```json\n"
+        + json.dumps({"summary": "BAD", "comments": []})
+        + "\n```\n\nMy actual review: ```json\n"
+        + json.dumps({"summary": "GOOD", "comments": []})
+        + "\n```"
+    )
+    r = parse_review_json(raw)
+    assert r.summary == "GOOD"
+
+
+def test_reviewer_call_empty_content_raises():
+    class _Empty:
+        messages = SimpleNamespace(create=lambda **kw: SimpleNamespace(content=[]))
+    r = Reviewer(client=_Empty(), model="claude-opus-4-7")
+    with pytest.raises(ValueError, match="empty content"):
+        r.review(_ctx(), None)
