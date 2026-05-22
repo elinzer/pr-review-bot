@@ -20,7 +20,7 @@ def _fake_issue(repo_full_name, number, title, html_url, body, head_sha, branch)
     return issue
 
 
-def test_list_team_review_requests_returns_summaries(mocker):
+def test_list_team_review_requests_returns_summaries():
     gh = MagicMock()
     gh.search_issues.return_value = [
         _fake_issue("o/r", 1, "Fix login", "https://github.com/o/r/pull/1",
@@ -101,12 +101,13 @@ def test_create_pending_review_posts_to_github():
 
     kwargs = pr.create_review.call_args.kwargs
     assert kwargs.get("commit_id") == "abc" or (kwargs.get("commit") is not None)
-    assert "event" not in kwargs or kwargs["event"] is None
+    assert "event" not in kwargs
     assert kwargs["body"] == "all good"
     assert len(kwargs["comments"]) == 1
     c0 = kwargs["comments"][0]
     assert c0["path"] == "app/a.py"
     assert c0.get("line") == 2 or c0.get("position") == 2
+    repo.get_commit.assert_called_with("abc")
 
 
 def test_create_pending_review_empty_uses_summary_only():
