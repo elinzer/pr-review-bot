@@ -40,3 +40,29 @@ def test_load_config_missing_required_raises(monkeypatch):
     monkeypatch.delenv("GITHUB_PAT", raising=False)
     with pytest.raises(RuntimeError, match="GITHUB_PAT"):
         load_config(load_dotenv=False)
+
+
+def test_load_config_missing_multiple_required_raises(monkeypatch):
+    for k in ("GITHUB_PAT", "ANTHROPIC_API_KEY", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_BASE_URL", "GITHUB_TEAM_SLUG"):
+        monkeypatch.delenv(k, raising=False)
+    with pytest.raises(RuntimeError) as exc_info:
+        load_config(load_dotenv=False)
+    msg = str(exc_info.value)
+    assert "GITHUB_PAT" in msg
+    assert "ANTHROPIC_API_KEY" in msg
+
+
+@pytest.mark.parametrize("val", ["1", "yes", "YES", "True", "ON"])
+def test_load_config_dry_run_truthy_values(monkeypatch, val):
+    for k in ("GITHUB_PAT", "ANTHROPIC_API_KEY", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_BASE_URL", "GITHUB_TEAM_SLUG"):
+        monkeypatch.setenv(k, "x")
+    monkeypatch.setenv("DRY_RUN", val)
+    assert load_config(load_dotenv=False).dry_run is True
+
+
+def test_load_config_invalid_poll_interval_raises(monkeypatch):
+    for k in ("GITHUB_PAT", "ANTHROPIC_API_KEY", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_BASE_URL", "GITHUB_TEAM_SLUG"):
+        monkeypatch.setenv(k, "x")
+    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "not-a-number")
+    with pytest.raises(RuntimeError, match="POLL_INTERVAL_SECONDS"):
+        load_config(load_dotenv=False)
