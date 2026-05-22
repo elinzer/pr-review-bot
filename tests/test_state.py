@@ -72,3 +72,15 @@ def test_corrupt_file_returns_empty(tmp_path):
     path.write_text("this is not json {{{{")
     s = State(path)
     assert s.is_reviewed("https://gh/x/1") is False
+
+
+def test_mark_dry_run_reviewed_skips_on_unreviewed(tmp_path):
+    s = State(tmp_path / "state.json")
+    s.mark_dry_run_reviewed("https://gh/x/1")
+    assert s.is_reviewed("https://gh/x/1") is True
+
+    class Fake:
+        def __init__(self, url): self.url = url
+
+    prs = [Fake("https://gh/x/1"), Fake("https://gh/x/2")]
+    assert [p.url for p in s.unreviewed(prs)] == ["https://gh/x/2"]

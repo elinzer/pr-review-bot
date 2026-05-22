@@ -32,24 +32,27 @@ def run_once(cfg, gh_client, jira_client, reviewer) -> None:
             if key and jira_ctx is None:
                 log.info("Jira ticket %s not fetched; proceeding without context", key)
 
-            review = reviewer.review_pr(ctx, jira_ctx)
+            try:
+                review = reviewer.review_pr(ctx, jira_ctx)
+            except ValueError as e:
+                count = state.increment_parse_failed(summary.url)
+                log.warning("Parse failure %d on %s: %s", count, summary.url, e)
+                if count >= 3:
+                    state.mark_skipped_manual(summary.url)
+                    log.error("Giving up on %s after 3 parse failures", summary.url)
+                continue
 
             if cfg.dry_run:
                 log.info(
                     "[DRY_RUN] Would post review on %s: summary=%r comments=%d",
                     summary.url, review.summary, len(review.comments),
                 )
+                state.mark_dry_run_reviewed(summary.url)
                 continue
 
             review_id = gh_client.create_pending_review(summary, review)
             state.mark_reviewed(summary.url, review_id=review_id)
             log.info("Created pending review %d on %s", review_id, summary.url)
-        except ValueError as e:
-            count = state.increment_parse_failed(summary.url)
-            log.warning("Parse failure %d on %s: %s", count, summary.url, e)
-            if count >= 3:
-                state.mark_skipped_manual(summary.url)
-                log.error("Giving up on %s after 3 parse failures", summary.url)
         except Exception:
             log.exception("Error processing %s; skipping", summary.url)
 

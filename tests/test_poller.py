@@ -70,6 +70,11 @@ def test_run_once_dry_run_skips_create(tmp_path):
     )
     run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer)
     gh.create_pending_review.assert_not_called()
+    assert reviewer.review_pr.call_count == 1
+
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer)
+    gh.create_pending_review.assert_not_called()
+    assert reviewer.review_pr.call_count == 1
 
 
 def test_run_once_isolates_pr_errors(tmp_path):

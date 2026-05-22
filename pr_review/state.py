@@ -29,7 +29,8 @@ class State:
         return self._data["reviews"].setdefault(url, {})
 
     def is_reviewed(self, url: str) -> bool:
-        return "review_id" in self._data["reviews"].get(url, {})
+        entry = self._data["reviews"].get(url, {})
+        return "review_id" in entry or "dry_run_logged_at" in entry
 
     def is_skipped(self, url: str) -> bool:
         return self._data["reviews"].get(url, {}).get("skipped_manual") is True
@@ -45,6 +46,11 @@ class State:
         entry["parse_failed_count"] = entry.get("parse_failed_count", 0) + 1
         self._save()
         return entry["parse_failed_count"]
+
+    def mark_dry_run_reviewed(self, url: str) -> None:
+        entry = self._entry(url)
+        entry["dry_run_logged_at"] = datetime.now(timezone.utc).isoformat()
+        self._save()
 
     def mark_skipped_manual(self, url: str) -> None:
         entry = self._entry(url)
