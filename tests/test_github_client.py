@@ -36,9 +36,11 @@ def test_list_team_review_requests_returns_summaries():
     assert out[0].head_sha == "abc123"
     gh.search_issues.assert_called_once()
     q = gh.search_issues.call_args[0][0]
-    assert "review-requested:o/team" in q
+    assert "team-review-requested:o/team" in q
     assert "is:pr" in q
     assert "is:open" in q
+    assert "-is:draft" in q
+    assert "created:>=" in q
 
 
 def test_get_pr_context_returns_files():
