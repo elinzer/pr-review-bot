@@ -19,7 +19,7 @@
     <true/>
 
     <key>StartInterval</key>
-    <integer>300</integer>
+    <integer>600</integer>
 
     <key>StandardOutPath</key>
     <string>__HOME__/Library/Logs/pr-review-bot/stdout.log</string>

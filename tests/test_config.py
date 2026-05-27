@@ -10,7 +10,7 @@ def test_load_config_reads_required_fields(monkeypatch):
     monkeypatch.setenv("JIRA_API_TOKEN", "tok")
     monkeypatch.setenv("JIRA_BASE_URL", "https://x.atlassian.net")
     monkeypatch.setenv("GITHUB_TEAM_SLUG", "org/team")
-    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "300")
+    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "600")
     monkeypatch.setenv("PR_MAX_AGE_DAYS", "14")
     monkeypatch.setenv("MODEL", "claude-opus-4-7")
     monkeypatch.setenv("STATE_PATH", "./state.json")
@@ -21,7 +21,7 @@ def test_load_config_reads_required_fields(monkeypatch):
 
     assert cfg.github_pat == "ghp_x"
     assert cfg.github_team_slug == "org/team"
-    assert cfg.poll_interval_seconds == 300
+    assert cfg.poll_interval_seconds == 600
     assert cfg.pr_max_age_days == 14
     assert cfg.model == "claude-opus-4-7"
     assert cfg.dry_run is False

@@ -19,7 +19,7 @@ No code has been written yet. Only the spec and this CLAUDE.md exist.
 These were decided during brainstorming. Read the spec for full rationale.
 
 - **Architecture:** Architecture A — local scheduled poller on macOS via launchd. Rejected: GitHub Actions (B) and Gmail-triggered (C).
-- **Trigger:** Polls GitHub REST every 5 minutes (configurable). No webhooks, no Actions, no email.
+- **Trigger:** Polls GitHub REST every 10 minutes (configurable). No webhooks, no Actions, no email.
 - **Model:** Claude Opus 4.7 for *both* the review pass and the self-critique pass. Simplicity over cost optimization. Model is configurable via `MODEL` env var.
 - **Scope of review:** Bugs and breaks only (correctness issues provable from the diff). **Style consistency was explicitly dropped** — too hallucination-prone.
 - **Severities:** Two only — `bug` (asserted defect) and `question` (clarification, no assertion). No `style`.
