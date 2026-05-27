@@ -58,7 +58,7 @@ def run_once(cfg, gh_client, jira_client, reviewer) -> None:
 
 
 def _build_default_clients(cfg: Config):
-    gh = GitHubClient.from_pat(cfg.github_pat, cfg.github_team_slug)
+    gh = GitHubClient.from_pat(cfg.github_pat, cfg.github_team_slug, cfg.pr_max_age_days)
     jira = JiraClient(
         base_url=cfg.jira_base_url,
         email=cfg.jira_email,

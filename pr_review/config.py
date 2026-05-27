@@ -12,6 +12,7 @@ class Config:
     jira_base_url: str
     github_team_slug: str
     poll_interval_seconds: int
+    pr_max_age_days: int
     model: str
     state_path: str
     dry_run: bool
@@ -36,11 +37,17 @@ def load_config(load_dotenv: bool = True) -> Config:
     if missing:
         raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
 
-    raw_poll = os.environ.get("POLL_INTERVAL_SECONDS", "300")
+    raw_poll = os.environ.get("POLL_INTERVAL_SECONDS", "600")
     try:
         poll_interval = int(raw_poll)
     except ValueError:
         raise RuntimeError(f"POLL_INTERVAL_SECONDS must be an integer, got: {raw_poll!r}")
+
+    raw_age = os.environ.get("PR_MAX_AGE_DAYS", "14")
+    try:
+        pr_max_age = int(raw_age)
+    except ValueError:
+        raise RuntimeError(f"PR_MAX_AGE_DAYS must be an integer, got: {raw_age!r}")
 
     return Config(
         github_pat=os.environ["GITHUB_PAT"],
@@ -50,6 +57,7 @@ def load_config(load_dotenv: bool = True) -> Config:
         jira_base_url=os.environ["JIRA_BASE_URL"].rstrip("/"),
         github_team_slug=os.environ["GITHUB_TEAM_SLUG"],
         poll_interval_seconds=poll_interval,
+        pr_max_age_days=pr_max_age,
         model=os.environ.get("MODEL", "claude-opus-4-7"),
         state_path=os.environ.get("STATE_PATH", "./state.json"),
         dry_run=os.environ.get("DRY_RUN", "false").strip().lower() in ("true", "1", "yes", "on"),

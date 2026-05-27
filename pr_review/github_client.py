@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from github import Github
 
@@ -9,13 +10,19 @@ from pr_review.models import Comment, FileChange, PRContext, PullRequestSummary,
 class GitHubClient:
     github: Github
     team_slug: str
+    max_age_days: int = 14
 
     @classmethod
-    def from_pat(cls, pat: str, team_slug: str) -> "GitHubClient":
-        return cls(github=Github(pat), team_slug=team_slug)
+    def from_pat(cls, pat: str, team_slug: str, max_age_days: int = 14) -> "GitHubClient":
+        return cls(github=Github(pat), team_slug=team_slug, max_age_days=max_age_days)
 
     def list_team_review_requests(self) -> list[PullRequestSummary]:
-        query = f"is:pr is:open review-requested:{self.team_slug}"
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=self.max_age_days)).strftime("%Y-%m-%d")
+        query = (
+            f"is:pr is:open -is:draft "
+            f"team-review-requested:{self.team_slug} "
+            f"created:>={cutoff}"
+        )
         results = self.github.search_issues(query)
         out = []
         for issue in results:
@@ -71,4 +78,5 @@ def _format_comment_body(c: Comment) -> str:
     body = f"{prefix} {c.body}\n\n_Evidence:_ `{c.evidence.citation}`"
     if c.evidence.quoted_code:
         body += f"\n\n```\n{c.evidence.quoted_code}\n```"
+    body += "\n\n_—El + Claude PR review bot_"
     return body
