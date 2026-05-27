@@ -36,7 +36,7 @@ def load_config(load_dotenv: bool = True) -> Config:
     if missing:
         raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
 
-    raw_poll = os.environ.get("POLL_INTERVAL_SECONDS", "180")
+    raw_poll = os.environ.get("POLL_INTERVAL_SECONDS", "300")
     try:
         poll_interval = int(raw_poll)
     except ValueError:
