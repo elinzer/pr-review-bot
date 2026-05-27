@@ -36,6 +36,12 @@ sed -e "s|__PROJECT_PATH__|$(pwd)|g" \
 launchctl load ~/Library/LaunchAgents/com.elinzer.pr-review-bot.plist
 ```
 
+## Watch it work
+
+```bash
+tail -f ~/Library/Logs/pr-review-bot/stderr.log
+```
+
 ## Pause / resume
 
 ```bash

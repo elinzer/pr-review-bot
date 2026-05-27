@@ -78,4 +78,5 @@ def _format_comment_body(c: Comment) -> str:
     body = f"{prefix} {c.body}\n\n_Evidence:_ `{c.evidence.citation}`"
     if c.evidence.quoted_code:
         body += f"\n\n```\n{c.evidence.quoted_code}\n```"
+    body += "\n\n_—El + Claude PR review bot_"
     return body
