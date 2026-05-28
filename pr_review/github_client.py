@@ -1,7 +1,8 @@
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from github import Github
+from github import Github, GithubException
 
 from pr_review.models import Comment, FileChange, PRContext, PullRequestSummary, Review
 
@@ -23,7 +24,13 @@ class GitHubClient:
             f"team-review-requested:{self.team_slug} "
             f"created:>={cutoff}"
         )
-        results = self.github.search_issues(query)
+        try:
+            results = list(self.github.search_issues(query))
+        except GithubException as e:
+            if e.status != 404 and e.status < 500:
+                raise
+            time.sleep(5)
+            results = list(self.github.search_issues(query))
         out = []
         for issue in results:
             pr = issue.as_pull_request()
