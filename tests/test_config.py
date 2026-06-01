@@ -70,7 +70,7 @@ def test_load_config_invalid_poll_interval_raises(monkeypatch):
         load_config(load_dotenv=False)
 
 
-def test_slack_webhook_url_defaults_to_empty(monkeypatch, tmp_path):
+def test_slack_webhook_url_defaults_to_empty(monkeypatch):
     monkeypatch.setenv("GITHUB_PAT", "x")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     monkeypatch.setenv("JIRA_EMAIL", "x@x")
