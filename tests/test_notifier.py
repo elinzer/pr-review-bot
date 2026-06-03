@@ -69,6 +69,7 @@ def test_notify_swallows_http_error(requests_mock, caplog):
         notifier.notify_review_ready(_summary(), _review())
 
     assert any("Slack notify failed" in r.message for r in caplog.records)
+    assert any("https://github.com/o/r/pull/42" in r.message for r in caplog.records)
 
 
 def test_notify_swallows_network_error(requests_mock, caplog):
