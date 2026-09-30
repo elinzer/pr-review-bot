@@ -97,7 +97,11 @@ CRITIQUE_SCHEMA = {
 def _format_files(pr: PRContext) -> str:
     parts = []
     for f in pr.files:
-        parts.append(f"=== FILE: {f.path} (+{f.additions} -{f.deletions}) ===\n{f.patch}\n")
+        renamed = f" (renamed from {f.previous_path})" if f.previous_path else ""
+        parts.append(f"=== FILE: {f.path}{renamed} (+{f.additions} -{f.deletions}) ===\n{f.patch}\n")
+    if pr.other_changes:
+        listed = "\n".join(f"- {c}" for c in pr.other_changes)
+        parts.append(f"## Files changed without a diff\n{listed}\n")
     return "\n".join(parts)
 
 

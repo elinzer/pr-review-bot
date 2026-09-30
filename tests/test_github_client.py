@@ -52,11 +52,13 @@ def test_get_pr_context_returns_files():
     file_a.patch = "@@ -1,1 +1,2 @@\n line\n+new"
     file_a.additions = 1
     file_a.deletions = 0
+    file_a.status = "modified"
     file_b = MagicMock()
     file_b.filename = "app/b.py"
     file_b.patch = None
     file_b.additions = 0
     file_b.deletions = 0
+    file_b.status = "added"
     pr.get_files.return_value = [file_a, file_b]
     repo.get_pull.return_value = pr
     gh.get_repo.return_value = repo
@@ -69,8 +71,36 @@ def test_get_pr_context_returns_files():
     ctx = client.get_pr_context(summary)
     assert len(ctx.files) == 1
     assert ctx.files[0].path == "app/a.py"
+    assert ctx.files[0].previous_path == ""
+    assert ctx.other_changes == ["added: app/b.py (no diff shown: binary or too large)"]
     gh.get_repo.assert_called_with("o/r")
     repo.get_pull.assert_called_with(1)
+
+
+def _file(filename, status, patch, previous_filename=None):
+    f = MagicMock()
+    f.filename = filename
+    f.status = status
+    f.patch = patch
+    f.previous_filename = previous_filename
+    f.additions = 1 if patch else 0
+    f.deletions = 0
+    return f
+
+
+def test_get_pr_context_surfaces_renames():
+    gh = MagicMock()
+    pr = gh.get_repo.return_value.get_pull.return_value
+    pr.get_files.return_value = [
+        _file("new/pure.py", "renamed", None, "old/pure.py"),
+        _file("new/edited.py", "renamed", "@@ -1,1 +1,2 @@\n line\n+new", "old/edited.py"),
+    ]
+    summary = PullRequestSummary(
+        url="u", repo_full_name="o/r", number=1, title="t", head_sha="s", body="b", branch="br",
+    )
+    ctx = GitHubClient(github=gh, team_slug="o/team").get_pr_context(summary)
+    assert ctx.other_changes == ["renamed: old/pure.py -> new/pure.py (no content change)"]
+    assert [(f.path, f.previous_path) for f in ctx.files] == [("new/edited.py", "old/edited.py")]
 
 
 def test_create_pending_review_posts_to_github():
