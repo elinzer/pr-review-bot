@@ -28,7 +28,7 @@ def run_once(cfg, gh_client, jira_client, reviewer, notifier) -> None:
     for summary in to_review:
         try:
             ctx = gh_client.get_pr_context(summary)
-            key = extract_key(summary.branch, summary.body)
+            key = extract_key(summary.branch, summary.body, cfg.jira_project_keys)
             jira_ctx = jira_client.fetch_ticket(key) if key else None
             if key and jira_ctx is None:
                 log.info("Jira ticket %s not fetched; proceeding without context", key)

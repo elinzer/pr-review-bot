@@ -40,6 +40,7 @@ def test_run_once_pipelines_one_pr(tmp_path):
     state_path = tmp_path / "state.json"
 
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(state_path),
         github_team_slug="o/team",
         dry_run=False,
@@ -67,6 +68,7 @@ def test_run_once_dry_run_skips_create(tmp_path):
     notifier = MagicMock()
 
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(tmp_path / "state.json"),
         github_team_slug="o/team",
         dry_run=True,
@@ -96,6 +98,7 @@ def test_run_once_isolates_pr_errors(tmp_path):
     notifier = MagicMock()
 
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(tmp_path / "state.json"),
         github_team_slug="o/team",
         dry_run=False,
@@ -120,6 +123,7 @@ def test_run_once_notifies_after_successful_review(tmp_path):
     notifier = MagicMock()
 
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(tmp_path / "state.json"),
         github_team_slug="o/team",
         dry_run=False,
@@ -145,6 +149,7 @@ def test_run_once_notifies_in_dry_run_branch(tmp_path):
     notifier = MagicMock()
 
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(tmp_path / "state.json"),
         github_team_slug="o/team",
         dry_run=True,
@@ -177,6 +182,7 @@ def test_run_once_notify_failure_does_not_unmark_review(tmp_path):
     notifier.notify_review_ready.side_effect = RuntimeError("slack down")
 
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(tmp_path / "state.json"),
         github_team_slug="o/team",
         dry_run=False,

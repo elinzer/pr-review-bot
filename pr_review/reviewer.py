@@ -144,10 +144,10 @@ class Reviewer:
         raw = self._call(msgs["system"], msgs["messages"], msgs["schema"])
         return parse_review_json(raw)
 
-    def self_critique(self, review: Review, pr: PRContext) -> Review:
+    def self_critique(self, review: Review, pr: PRContext, jira: Optional[JiraContext] = None) -> Review:
         if not review.comments:
             return review
-        msgs = build_critique_messages(pr, review)
+        msgs = build_critique_messages(pr, review, jira)
         raw = self._call(msgs["system"], msgs["messages"], msgs["schema"])
         try:
             data = json.loads(raw)
@@ -164,5 +164,5 @@ class Reviewer:
 
     def review_pr(self, pr: PRContext, jira: Optional[JiraContext]) -> Review:
         draft = self.review(pr, jira)
-        critiqued = self.self_critique(draft, pr)
+        critiqued = self.self_critique(draft, pr, jira)
         return validate(critiqued, pr)

@@ -17,13 +17,14 @@ Rules — non-negotiable:
 5. **No style commentary.** Naming, formatting, ordering, abstractions — out of scope.
 6. **At most 5 comments.** Prioritize the highest-impact issues.
 7. **Line numbers** refer to the line number in the *new* version of the file (the right side of the unified diff — what you'd see on GitHub's "Files changed" tab).
+8. **Jira ticket (when present)** describes the intended behavior. Use it to understand what the change is meant to do, so you can tell a deliberate behavior change from a defect. Do not comment on whether the ticket is fully implemented.
 """
 
 
 CRITIQUE_SYSTEM = """You are auditing a draft code review. For each comment, verify:
 
 1. `evidence.quoted_code` appears verbatim in the diff context shown.
-2. The claim in `body` follows from the evidence and the diff alone.
+2. The claim in `body` follows from the evidence and the diff. The Jira ticket, when present, tells you the intended behavior; it is not evidence of what the code does.
 3. The severity is appropriate (`bug` only when the defect is asserted with proof; otherwise `question`).
 
 For each comment index, put it in `keep` or record it in `drop` with a reason.
@@ -101,23 +102,27 @@ def _format_files(pr: PRContext) -> str:
 
 
 def _format_jira(jira: JiraContext) -> str:
-    return (
-        f"Jira ticket: {jira.key}\n"
-        f"Title: {jira.title}\n"
-        f"Description:\n{jira.description}\n\n"
-        f"Acceptance criteria:\n{jira.acceptance_criteria}"
-    )
+    lines = [f"Jira ticket: {jira.key}", f"Title: {jira.title}"]
+    if jira.epic:
+        lines.append(f"Epic: {jira.epic}")
+    lines.append(f"Description:\n{jira.description or '(empty)'}")
+    if jira.linked_issues:
+        lines.append("Linked issues:\n" + "\n".join(f"- {l}" for l in jira.linked_issues))
+    return "\n".join(lines)
+
+
+def _jira_section(jira: Optional[JiraContext]) -> str:
+    return f"## Jira context\n{_format_jira(jira)}\n\n" if jira is not None else ""
 
 
 def build_review_messages(pr: PRContext, jira: Optional[JiraContext]) -> dict:
-    jira_section = f"## Jira context\n{_format_jira(jira)}\n\n" if jira is not None else ""
     user = (
         f"# Pull request\n\n"
         f"Repo: {pr.summary.repo_full_name}\n"
         f"Title: {pr.summary.title}\n"
         f"Branch: {pr.summary.branch}\n\n"
         f"## PR body\n{pr.summary.body or '(empty)'}\n\n"
-        f"{jira_section}"
+        f"{_jira_section(jira)}"
         f"## Diff\n{_format_files(pr)}\n"
     )
     return {
@@ -127,7 +132,7 @@ def build_review_messages(pr: PRContext, jira: Optional[JiraContext]) -> dict:
     }
 
 
-def build_critique_messages(pr: PRContext, review: Review) -> dict:
+def build_critique_messages(pr: PRContext, review: Review, jira: Optional[JiraContext] = None) -> dict:
     review_json = json.dumps(
         {
             "summary": review.summary,
@@ -148,6 +153,7 @@ def build_critique_messages(pr: PRContext, review: Review) -> dict:
         indent=2,
     )
     user = (
+        f"{_jira_section(jira)}"
         f"## Diff\n{_format_files(pr)}\n\n"
         f"## Draft review\n```json\n{review_json}\n```"
     )

@@ -84,3 +84,20 @@ def test_slack_webhook_url_read_from_env(monkeypatch):
 
     cfg = load_config(load_dotenv=False)
     assert cfg.slack_webhook_url == "https://hooks.slack.com/services/AAA/BBB/ccc"
+
+
+def _required_env(monkeypatch):
+    for k in ("GITHUB_PAT", "ANTHROPIC_API_KEY", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_BASE_URL", "GITHUB_TEAM_SLUG"):
+        monkeypatch.setenv(k, "x")
+
+
+def test_jira_project_keys_parsed(monkeypatch):
+    _required_env(monkeypatch)
+    monkeypatch.setenv("JIRA_PROJECT_KEYS", " proj, DATA ,")
+    assert load_config(load_dotenv=False).jira_project_keys == ("PROJ", "DATA")
+
+
+def test_jira_project_keys_default_empty(monkeypatch):
+    _required_env(monkeypatch)
+    monkeypatch.delenv("JIRA_PROJECT_KEYS", raising=False)
+    assert load_config(load_dotenv=False).jira_project_keys == ()

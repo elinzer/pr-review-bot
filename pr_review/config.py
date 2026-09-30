@@ -17,6 +17,7 @@ class Config:
     dry_run: bool
     log_level: str
     slack_webhook_url: str
+    jira_project_keys: tuple[str, ...]
 
 
 _REQUIRED = (
@@ -56,4 +57,7 @@ def load_config(load_dotenv: bool = True) -> Config:
         dry_run=os.environ.get("DRY_RUN", "false").strip().lower() in ("true", "1", "yes", "on"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL", ""),
+        jira_project_keys=tuple(
+            k.strip().upper() for k in os.environ.get("JIRA_PROJECT_KEYS", "").split(",") if k.strip()
+        ),
     )

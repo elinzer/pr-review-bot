@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from pr_review.models import (
-    Comment, Evidence, FileChange, PRContext, PullRequestSummary, Review,
+    Comment, Evidence, FileChange, JiraContext, PRContext, PullRequestSummary, Review,
 )
 from pr_review.reviewer import MAX_COMMENTS, Reviewer, parse_review_json, validate
 
@@ -298,9 +298,11 @@ class _SeqAnthropic:
     def __init__(self, *texts):
         self._texts = list(texts)
         self._i = 0
+        self.calls = []
         self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
+        self.calls.append(kwargs)
         t = self._texts[self._i]
         self._i += 1
         return _resp([_text_block(t)])
@@ -322,6 +324,20 @@ def test_review_pr_runs_pipeline_end_to_end():
     final = r.review_pr(_ctx(), None)
     assert final.summary.startswith("Adds")
     assert len(final.comments) == 1
+
+
+def test_review_pr_passes_jira_to_critique():
+    review_resp = json.dumps({
+        "summary": "s",
+        "comments": [{
+            "file": "app/login.py", "line": 3, "severity": "bug", "body": "b",
+            "evidence": {"quoted_code": "return x", "citation": "app/login.py:3"},
+        }],
+    })
+    client = _SeqAnthropic(review_resp, json.dumps({"keep": [0], "drop": []}))
+    jira = JiraContext(key="PROJ-9", title="Ticket title here", description="d")
+    Reviewer(client=client, model="claude-opus-5-5").review_pr(_ctx(), jira)
+    assert "Ticket title here" in client.calls[1]["messages"][0]["content"]
 
 
 def test_self_critique_all_drop_returns_empty_comments():

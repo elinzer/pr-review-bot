@@ -26,6 +26,16 @@ def _pr_context():
     )
 
 
+def _jira():
+    return JiraContext(
+        key="ABC-1",
+        title="Fix login bug",
+        description="users hit null",
+        epic="ABC-0: Login hardening",
+        linked_issues=["blocks ABC-2: Login metrics"],
+    )
+
+
 def test_review_messages_include_diff_and_rules():
     msgs = build_review_messages(_pr_context(), None)
     assert msgs["system"]
@@ -36,11 +46,24 @@ def test_review_messages_include_diff_and_rules():
 
 
 def test_review_messages_with_jira():
-    jira = JiraContext(key="ABC-1", title="Fix login bug", description="users hit null", acceptance_criteria="login does not crash")
-    msgs = build_review_messages(_pr_context(), jira)
+    msgs = build_review_messages(_pr_context(), _jira())
     user_text = msgs["messages"][0]["content"]
     assert "ABC-1" in user_text
     assert "Fix login bug" in user_text
+    assert "Epic: ABC-0: Login hardening" in user_text
+    assert "- blocks ABC-2: Login metrics" in user_text
+
+
+def test_review_system_explains_ticket_use():
+    assert "ticket" in build_review_messages(_pr_context(), None)["system"].lower()
+
+
+def test_critique_messages_include_jira_when_present():
+    review = Review(summary="s", comments=[])
+    with_jira = build_critique_messages(_pr_context(), review, _jira())["messages"][0]["content"]
+    without = build_critique_messages(_pr_context(), review)["messages"][0]["content"]
+    assert "Fix login bug" in with_jira
+    assert "Jira" not in without
 
 
 def test_review_messages_jira_omitted_when_none():

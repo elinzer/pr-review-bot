@@ -36,7 +36,8 @@ class JiraContext:
     key: str
     title: str
     description: str
-    acceptance_criteria: str
+    epic: str = ""
+    linked_issues: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
