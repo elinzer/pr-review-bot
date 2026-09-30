@@ -42,6 +42,23 @@ launchctl load ~/Library/LaunchAgents/com.elinzer.pr-review-bot.plist
 tail -f ~/Library/Logs/pr-review-bot/stderr.log
 ```
 
+## Slack notifications
+
+Optional. The bot can ping a Slack channel whenever it creates a pending review so you don't have to tail the log.
+
+1. In your Slack workspace, create a new Slack app and add an **Incoming Webhook** pointing at the channel you want (a private channel works fine).
+2. Copy the webhook URL into your `.env`:
+   ```
+   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/AAA/BBB/ccc
+   ```
+3. Reload the launchd agent so the new env var is picked up:
+   ```bash
+   launchctl unload ~/Library/LaunchAgents/com.elinzer.pr-review-bot.plist
+   launchctl load ~/Library/LaunchAgents/com.elinzer.pr-review-bot.plist
+   ```
+
+Leave `SLACK_WEBHOOK_URL` unset (or blank) to disable. Slack outages never block the review loop — failures are logged at WARNING.
+
 ## Pause / resume
 
 ```bash

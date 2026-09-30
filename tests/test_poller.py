@@ -35,20 +35,23 @@ def test_run_once_pipelines_one_pr(tmp_path):
     reviewer = MagicMock()
     reviewer.review_pr.return_value = Review(summary="ok", comments=[])
 
+    notifier = MagicMock()
+
     state_path = tmp_path / "state.json"
 
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(state_path),
         github_team_slug="o/team",
         dry_run=False,
         log_level="INFO",
     )
 
-    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer)
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
 
     gh.create_pending_review.assert_called_once()
     # Second run should skip — already reviewed
-    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer)
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
     assert gh.create_pending_review.call_count == 1
 
 
@@ -62,17 +65,20 @@ def test_run_once_dry_run_skips_create(tmp_path):
     reviewer = MagicMock()
     reviewer.review_pr.return_value = Review(summary="ok", comments=[])
 
+    notifier = MagicMock()
+
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(tmp_path / "state.json"),
         github_team_slug="o/team",
         dry_run=True,
         log_level="INFO",
     )
-    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer)
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
     gh.create_pending_review.assert_not_called()
     assert reviewer.review_pr.call_count == 1
 
-    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer)
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
     gh.create_pending_review.assert_not_called()
     assert reviewer.review_pr.call_count == 1
 
@@ -89,11 +95,102 @@ def test_run_once_isolates_pr_errors(tmp_path):
     reviewer = MagicMock()
     reviewer.review_pr.return_value = Review(summary="ok", comments=[])
 
+    notifier = MagicMock()
+
     cfg = SimpleNamespace(
+        jira_project_keys=(),
         state_path=str(tmp_path / "state.json"),
         github_team_slug="o/team",
         dry_run=False,
         log_level="INFO",
     )
-    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer)
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
     gh.create_pending_review.assert_called_once()
+
+
+def test_run_once_notifies_after_successful_review(tmp_path):
+    summary = _summary()
+    gh = MagicMock()
+    gh.list_team_review_requests.return_value = [summary]
+    gh.get_pr_context.return_value = _ctx(summary)
+    gh.create_pending_review.return_value = 7777
+
+    jira = MagicMock(); jira.fetch_ticket.return_value = None
+    reviewer = MagicMock()
+    review = Review(summary="ok", comments=[])
+    reviewer.review_pr.return_value = review
+
+    notifier = MagicMock()
+
+    cfg = SimpleNamespace(
+        jira_project_keys=(),
+        state_path=str(tmp_path / "state.json"),
+        github_team_slug="o/team",
+        dry_run=False,
+        log_level="INFO",
+    )
+
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
+
+    notifier.notify_review_ready.assert_called_once_with(summary, review)
+
+
+def test_run_once_notifies_in_dry_run_branch(tmp_path):
+    summary = _summary()
+    gh = MagicMock()
+    gh.list_team_review_requests.return_value = [summary]
+    gh.get_pr_context.return_value = _ctx(summary)
+
+    jira = MagicMock(); jira.fetch_ticket.return_value = None
+    reviewer = MagicMock()
+    review = Review(summary="ok", comments=[])
+    reviewer.review_pr.return_value = review
+
+    notifier = MagicMock()
+
+    cfg = SimpleNamespace(
+        jira_project_keys=(),
+        state_path=str(tmp_path / "state.json"),
+        github_team_slug="o/team",
+        dry_run=True,
+        log_level="INFO",
+    )
+
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
+
+    gh.create_pending_review.assert_not_called()
+    notifier.notify_review_ready.assert_called_once_with(summary, review)
+
+
+def test_run_once_notify_failure_does_not_unmark_review(tmp_path):
+    """Notifier raising should not undo state.mark_reviewed.
+
+    The notifier's contract is to never raise, but if it ever does the
+    review must still be considered done so we don't re-review next poll.
+    """
+    summary = _summary()
+    gh = MagicMock()
+    gh.list_team_review_requests.return_value = [summary]
+    gh.get_pr_context.return_value = _ctx(summary)
+    gh.create_pending_review.return_value = 7777
+
+    jira = MagicMock(); jira.fetch_ticket.return_value = None
+    reviewer = MagicMock()
+    reviewer.review_pr.return_value = Review(summary="ok", comments=[])
+
+    notifier = MagicMock()
+    notifier.notify_review_ready.side_effect = RuntimeError("slack down")
+
+    cfg = SimpleNamespace(
+        jira_project_keys=(),
+        state_path=str(tmp_path / "state.json"),
+        github_team_slug="o/team",
+        dry_run=False,
+        log_level="INFO",
+    )
+
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
+
+    # Second run should skip this PR — state was saved before the notify exception
+    run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
+    assert gh.create_pending_review.call_count == 1

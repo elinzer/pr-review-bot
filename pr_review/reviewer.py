@@ -65,19 +65,7 @@ def validate(review: Review, pr: PRContext) -> Review:
     return Review(summary=review.summary, comments=kept)
 
 
-_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _VALID_SEVERITIES = {"bug", "question"}
-
-
-def _extract_json(text: str) -> str:
-    matches = _JSON_FENCE_RE.findall(text)
-    if matches:
-        return matches[-1]
-    first = text.find("{")
-    last = text.rfind("}")
-    if first != -1 and last != -1 and last > first:
-        return text[first:last + 1]
-    return text
 
 
 def _parse_line(value) -> int:
@@ -110,7 +98,7 @@ def _parse_comment(c: dict) -> Optional[Comment]:
 
 def parse_review_json(raw: str) -> Review:
     try:
-        data = json.loads(_extract_json(raw))
+        data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise ValueError(f"Could not parse review JSON: {e}") from e
 
@@ -119,35 +107,50 @@ def parse_review_json(raw: str) -> Review:
     return Review(summary=data.get("summary", ""), comments=comments)
 
 
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
 @dataclass
 class Reviewer:
     client: object
     model: str
-    max_tokens: int = 8192
+    effort: str = "high"
+    max_tokens: int = 16000
 
-    def _call(self, system: str, messages: list[dict]) -> str:
-        resp = self.client.messages.create(
+    def _call(self, system: str, messages: list[dict], schema: dict) -> str:
+        resp = self.client.beta.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
             system=system,
             messages=messages,
+            output_config={
+                "effort": self.effort,
+                "format": {"type": "json_schema", "schema": schema},
+            },
+            betas=[FALLBACK_BETA],
+            extra_body={"fallbacks": "default"},
         )
-        if not resp.content:
-            raise ValueError("Anthropic returned empty content")
-        return resp.content[0].text
+        if resp.stop_reason == "refusal":
+            raise ValueError(f"Anthropic refused the request: {resp.stop_details}")
+        if resp.stop_reason == "max_tokens":
+            raise ValueError(f"Anthropic response truncated at max_tokens={self.max_tokens}")
+        text = next((b.text for b in resp.content if b.type == "text"), None)
+        if text is None:
+            raise ValueError("Anthropic returned no text content")
+        return text
 
     def review(self, pr: PRContext, jira: Optional[JiraContext]) -> Review:
         msgs = build_review_messages(pr, jira)
-        raw = self._call(msgs["system"], msgs["messages"])
+        raw = self._call(msgs["system"], msgs["messages"], msgs["schema"])
         return parse_review_json(raw)
 
-    def self_critique(self, review: Review, pr: PRContext) -> Review:
+    def self_critique(self, review: Review, pr: PRContext, jira: Optional[JiraContext] = None) -> Review:
         if not review.comments:
             return review
-        msgs = build_critique_messages(pr, review)
-        raw = self._call(msgs["system"], msgs["messages"])
+        msgs = build_critique_messages(pr, review, jira)
+        raw = self._call(msgs["system"], msgs["messages"], msgs["schema"])
         try:
-            data = json.loads(_extract_json(raw))
+            data = json.loads(raw)
         except json.JSONDecodeError:
             return Review(summary=review.summary, comments=[])
         keep = set()
@@ -161,5 +164,5 @@ class Reviewer:
 
     def review_pr(self, pr: PRContext, jira: Optional[JiraContext]) -> Review:
         draft = self.review(pr, jira)
-        critiqued = self.self_critique(draft, pr)
+        critiqued = self.self_critique(draft, pr, jira)
         return validate(critiqued, pr)

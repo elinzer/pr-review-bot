@@ -49,16 +49,23 @@ class GitHubClient:
         repo = self.github.get_repo(summary.repo_full_name)
         pr = repo.get_pull(summary.number)
         files = []
+        other_changes = []
         for f in pr.get_files():
+            renamed = f.status == "renamed"
             if not f.patch:
+                if renamed:
+                    other_changes.append(f"renamed: {f.previous_filename} -> {f.filename} (no content change)")
+                else:
+                    other_changes.append(f"{f.status}: {f.filename} (no diff shown: binary or too large)")
                 continue
             files.append(FileChange(
                 path=f.filename,
                 patch=f.patch,
                 additions=f.additions,
                 deletions=f.deletions,
+                previous_path=f.previous_filename if renamed else "",
             ))
-        return PRContext(summary=summary, files=files)
+        return PRContext(summary=summary, files=files, other_changes=other_changes)
 
     def create_pending_review(self, summary: PullRequestSummary, review: Review) -> int:
         repo = self.github.get_repo(summary.repo_full_name)
@@ -72,9 +79,10 @@ class GitHubClient:
             }
             for c in review.comments
         ]
+        body = review.summary if review.comments else "LGTM! _—El + Claude PR review bot_"
         created = pr.create_review(
             commit=repo.get_commit(summary.head_sha),
-            body=review.summary,
+            body=body,
             comments=comments,
         )
         return created.id

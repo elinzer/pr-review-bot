@@ -6,6 +6,7 @@ import anthropic
 from pr_review.config import Config, load_config
 from pr_review.github_client import GitHubClient
 from pr_review.jira_client import JiraClient, extract_key
+from pr_review.notifier import SlackNotifier
 from pr_review.reviewer import Reviewer
 from pr_review.state import State
 
@@ -13,7 +14,7 @@ from pr_review.state import State
 log = logging.getLogger("pr_review")
 
 
-def run_once(cfg, gh_client, jira_client, reviewer) -> None:
+def run_once(cfg, gh_client, jira_client, reviewer, notifier) -> None:
     state = State(cfg.state_path)
     try:
         summaries = gh_client.list_team_review_requests()
@@ -27,7 +28,7 @@ def run_once(cfg, gh_client, jira_client, reviewer) -> None:
     for summary in to_review:
         try:
             ctx = gh_client.get_pr_context(summary)
-            key = extract_key(summary.branch, summary.body)
+            key = extract_key(summary.branch, summary.body, cfg.jira_project_keys)
             jira_ctx = jira_client.fetch_ticket(key) if key else None
             if key and jira_ctx is None:
                 log.info("Jira ticket %s not fetched; proceeding without context", key)
@@ -48,11 +49,19 @@ def run_once(cfg, gh_client, jira_client, reviewer) -> None:
                     summary.url, review.summary, len(review.comments),
                 )
                 state.mark_dry_run_reviewed(summary.url)
+                try:
+                    notifier.notify_review_ready(summary, review)
+                except Exception:
+                    log.exception("Notifier raised on %s; continuing", summary.url)
                 continue
 
             review_id = gh_client.create_pending_review(summary, review)
             state.mark_reviewed(summary.url, review_id=review_id)
             log.info("Created pending review %d on %s", review_id, summary.url)
+            try:
+                notifier.notify_review_ready(summary, review)
+            except Exception:
+                log.exception("Notifier raised on %s; continuing", summary.url)
         except Exception:
             log.exception("Error processing %s; skipping", summary.url)
 
@@ -66,7 +75,8 @@ def _build_default_clients(cfg: Config):
     )
     anthropic_client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
     reviewer = Reviewer(client=anthropic_client, model=cfg.model)
-    return gh, jira, reviewer
+    notifier = SlackNotifier(webhook_url=cfg.slack_webhook_url, dry_run=cfg.dry_run)
+    return gh, jira, reviewer, notifier
 
 
 def main() -> int:
@@ -76,8 +86,8 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
-    gh, jira, reviewer = _build_default_clients(cfg)
-    run_once(cfg, gh, jira, reviewer)
+    gh, jira, reviewer, notifier = _build_default_clients(cfg)
+    run_once(cfg, gh, jira, reviewer, notifier)
     return 0
 
 

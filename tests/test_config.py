@@ -10,7 +10,6 @@ def test_load_config_reads_required_fields(monkeypatch):
     monkeypatch.setenv("JIRA_API_TOKEN", "tok")
     monkeypatch.setenv("JIRA_BASE_URL", "https://x.atlassian.net")
     monkeypatch.setenv("GITHUB_TEAM_SLUG", "org/team")
-    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "600")
     monkeypatch.setenv("PR_MAX_AGE_DAYS", "14")
     monkeypatch.setenv("MODEL", "claude-opus-4-7")
     monkeypatch.setenv("STATE_PATH", "./state.json")
@@ -21,7 +20,6 @@ def test_load_config_reads_required_fields(monkeypatch):
 
     assert cfg.github_pat == "ghp_x"
     assert cfg.github_team_slug == "org/team"
-    assert cfg.poll_interval_seconds == 600
     assert cfg.pr_max_age_days == 14
     assert cfg.model == "claude-opus-4-7"
     assert cfg.dry_run is False
@@ -62,9 +60,44 @@ def test_load_config_dry_run_truthy_values(monkeypatch, val):
     assert load_config(load_dotenv=False).dry_run is True
 
 
-def test_load_config_invalid_poll_interval_raises(monkeypatch):
+def test_slack_webhook_url_defaults_to_empty(monkeypatch):
+    monkeypatch.setenv("GITHUB_PAT", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setenv("JIRA_EMAIL", "x@x")
+    monkeypatch.setenv("JIRA_API_TOKEN", "x")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://x")
+    monkeypatch.setenv("GITHUB_TEAM_SLUG", "o/t")
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+
+    cfg = load_config(load_dotenv=False)
+    assert cfg.slack_webhook_url == ""
+
+
+def test_slack_webhook_url_read_from_env(monkeypatch):
+    monkeypatch.setenv("GITHUB_PAT", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setenv("JIRA_EMAIL", "x@x")
+    monkeypatch.setenv("JIRA_API_TOKEN", "x")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://x")
+    monkeypatch.setenv("GITHUB_TEAM_SLUG", "o/t")
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/AAA/BBB/ccc")
+
+    cfg = load_config(load_dotenv=False)
+    assert cfg.slack_webhook_url == "https://hooks.slack.com/services/AAA/BBB/ccc"
+
+
+def _required_env(monkeypatch):
     for k in ("GITHUB_PAT", "ANTHROPIC_API_KEY", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_BASE_URL", "GITHUB_TEAM_SLUG"):
         monkeypatch.setenv(k, "x")
-    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "not-a-number")
-    with pytest.raises(RuntimeError, match="POLL_INTERVAL_SECONDS"):
-        load_config(load_dotenv=False)
+
+
+def test_jira_project_keys_parsed(monkeypatch):
+    _required_env(monkeypatch)
+    monkeypatch.setenv("JIRA_PROJECT_KEYS", " proj, DATA ,")
+    assert load_config(load_dotenv=False).jira_project_keys == ("PROJ", "DATA")
+
+
+def test_jira_project_keys_default_empty(monkeypatch):
+    _required_env(monkeypatch)
+    monkeypatch.delenv("JIRA_PROJECT_KEYS", raising=False)
+    assert load_config(load_dotenv=False).jira_project_keys == ()

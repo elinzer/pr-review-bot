@@ -19,12 +19,14 @@ class FileChange:
     patch: str
     additions: int
     deletions: int
+    previous_path: str = ""
 
 
 @dataclass(frozen=True)
 class PRContext:
     summary: PullRequestSummary
     files: list[FileChange]
+    other_changes: list[str] = field(default_factory=list)
 
     @property
     def changed_file_paths(self) -> set[str]:
@@ -36,7 +38,8 @@ class JiraContext:
     key: str
     title: str
     description: str
-    acceptance_criteria: str
+    epic: str = ""
+    linked_issues: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
