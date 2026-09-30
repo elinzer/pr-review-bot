@@ -156,25 +156,32 @@ def test_parse_review_json_plain():
     assert r.comments[0].file == "a.py"
 
 
-def test_parse_review_json_in_code_fence():
-    raw = "Sure! Here:\n```json\n" + json.dumps({"summary": "s", "comments": []}) + "\n```\n"
-    r = parse_review_json(raw)
-    assert r.summary == "s"
-    assert r.comments == []
-
-
 def test_parse_review_json_invalid_raises():
     with pytest.raises(ValueError):
         parse_review_json("not json at all")
 
 
+def _text_block(text):
+    return SimpleNamespace(type="text", text=text)
+
+
+def _resp(content, stop_reason="end_turn", stop_details=None):
+    return SimpleNamespace(content=content, stop_reason=stop_reason, stop_details=stop_details)
+
+
 class _FakeAnthropic:
     def __init__(self, text):
         self._text = text
-        self.messages = SimpleNamespace(create=self._create)
+        self.calls = []
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
-        return SimpleNamespace(content=[SimpleNamespace(text=self._text)])
+        self.calls.append(kwargs)
+        return _resp([_text_block(self._text)])
+
+
+def _client_returning(resp):
+    return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: resp)))
 
 
 def test_reviewer_review_calls_claude_and_parses():
@@ -182,7 +189,7 @@ def test_reviewer_review_calls_claude_and_parses():
         "summary": "Looks fine",
         "comments": [],
     })
-    r = Reviewer(client=_FakeAnthropic(fake_resp), model="claude-opus-4-7")
+    r = Reviewer(client=_FakeAnthropic(fake_resp), model="claude-opus-5-5")
     out = r.review(_ctx(), None)
     assert out.summary == "Looks fine"
 
@@ -228,24 +235,41 @@ def test_parse_review_json_tolerates_line_range():
     assert r.comments[0].line == 42
 
 
-def test_parse_review_json_prefers_last_fence():
-    raw = (
-        "Here's an example I shouldn't use: ```json\n"
-        + json.dumps({"summary": "BAD", "comments": []})
-        + "\n```\n\nMy actual review: ```json\n"
-        + json.dumps({"summary": "GOOD", "comments": []})
-        + "\n```"
-    )
-    r = parse_review_json(raw)
-    assert r.summary == "GOOD"
-
-
 def test_reviewer_call_empty_content_raises():
-    class _Empty:
-        messages = SimpleNamespace(create=lambda **kw: SimpleNamespace(content=[]))
-    r = Reviewer(client=_Empty(), model="claude-opus-4-7")
-    with pytest.raises(ValueError, match="empty content"):
+    r = Reviewer(client=_client_returning(_resp([])), model="claude-opus-5-5")
+    with pytest.raises(ValueError, match="no text content"):
         r.review(_ctx(), None)
+
+
+def test_reviewer_skips_leading_thinking_block():
+    text = json.dumps({"summary": "after thinking", "comments": []})
+    resp = _resp([SimpleNamespace(type="thinking", thinking=""), _text_block(text)])
+    r = Reviewer(client=_client_returning(resp), model="claude-opus-5-5")
+    assert r.review(_ctx(), None).summary == "after thinking"
+
+
+def test_reviewer_refusal_raises():
+    resp = _resp([], stop_reason="refusal", stop_details=SimpleNamespace(category="cyber"))
+    r = Reviewer(client=_client_returning(resp), model="claude-opus-5-5")
+    with pytest.raises(ValueError, match="refused"):
+        r.review(_ctx(), None)
+
+
+def test_reviewer_max_tokens_raises():
+    resp = _resp([_text_block('{"summary": "trunc')], stop_reason="max_tokens")
+    r = Reviewer(client=_client_returning(resp), model="claude-opus-5-5")
+    with pytest.raises(ValueError, match="truncated"):
+        r.review(_ctx(), None)
+
+
+def test_reviewer_sends_schema_effort_and_fallbacks():
+    client = _FakeAnthropic(json.dumps({"summary": "s", "comments": []}))
+    Reviewer(client=client, model="claude-opus-5-5").review(_ctx(), None)
+    call = client.calls[0]
+    assert call["output_config"]["effort"] == "high"
+    assert call["output_config"]["format"]["type"] == "json_schema"
+    assert "comments" in call["output_config"]["format"]["schema"]["properties"]
+    assert call["extra_body"] == {"fallbacks": "default"}
 
 
 def test_self_critique_filters_dropped():
@@ -257,14 +281,14 @@ def test_self_critique_filters_dropped():
         ],
     )
     critique_resp = json.dumps({"keep": [0], "drop": [{"index": 1, "reason": "bogus"}]})
-    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-4-7")
+    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-5-5")
     out = r.self_critique(review, _ctx())
     assert len(out.comments) == 1
     assert out.comments[0].evidence.quoted_code == "return x"
 
 
 def test_self_critique_empty_review_returns_empty():
-    r = Reviewer(client=_FakeAnthropic("{}"), model="claude-opus-4-7")
+    r = Reviewer(client=_FakeAnthropic("{}"), model="claude-opus-5-5")
     out = r.self_critique(Review(summary="s", comments=[]), _ctx())
     assert out.comments == []
 
@@ -274,12 +298,12 @@ class _SeqAnthropic:
     def __init__(self, *texts):
         self._texts = list(texts)
         self._i = 0
-        self.messages = SimpleNamespace(create=self._create)
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         t = self._texts[self._i]
         self._i += 1
-        return SimpleNamespace(content=[SimpleNamespace(text=t)])
+        return _resp([_text_block(t)])
 
 
 def test_review_pr_runs_pipeline_end_to_end():
@@ -293,7 +317,7 @@ def test_review_pr_runs_pipeline_end_to_end():
     })
     critique_resp = json.dumps({"keep": [0], "drop": []})
     client = _SeqAnthropic(review_resp, critique_resp)
-    r = Reviewer(client=client, model="claude-opus-4-7")
+    r = Reviewer(client=client, model="claude-opus-5-5")
 
     final = r.review_pr(_ctx(), None)
     assert final.summary.startswith("Adds")
@@ -306,7 +330,7 @@ def test_self_critique_all_drop_returns_empty_comments():
         comments=[_cmt(quote="return x")],
     )
     critique_resp = json.dumps({"keep": [], "drop": [{"index": 0, "reason": "bogus"}]})
-    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-4-7")
+    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-5-5")
     out = r.self_critique(review, _ctx())
     assert out.comments == []
     assert out.summary == "summary"
@@ -318,7 +342,7 @@ def test_self_critique_string_indices_tolerated():
         comments=[_cmt(quote="return x")],
     )
     critique_resp = json.dumps({"keep": ["0"], "drop": []})
-    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-4-7")
+    r = Reviewer(client=_FakeAnthropic(critique_resp), model="claude-opus-5-5")
     out = r.self_critique(review, _ctx())
     assert len(out.comments) == 1
 
@@ -328,7 +352,7 @@ def test_self_critique_malformed_json_returns_empty():
         summary="s",
         comments=[_cmt(quote="return x")],
     )
-    r = Reviewer(client=_FakeAnthropic("not json at all"), model="claude-opus-4-7")
+    r = Reviewer(client=_FakeAnthropic("not json at all"), model="claude-opus-5-5")
     out = r.self_critique(review, _ctx())
     assert out.comments == []
     assert out.summary == "s"

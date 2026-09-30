@@ -17,26 +17,6 @@ Rules — non-negotiable:
 5. **No style commentary.** Naming, formatting, ordering, abstractions — out of scope.
 6. **At most 5 comments.** Prioritize the highest-impact issues.
 7. **Line numbers** refer to the line number in the *new* version of the file (the right side of the unified diff — what you'd see on GitHub's "Files changed" tab).
-
-Output JSON, and nothing else, conforming exactly to this schema:
-
-```json
-{
-  "summary": "1-3 sentences describing the change and overall risk",
-  "comments": [
-    {
-      "file": "path/from/diff",
-      "line": 42,
-      "severity": "bug",
-      "body": "the comment",
-      "evidence": {
-        "quoted_code": "verbatim substring of the diff",
-        "citation": "path:40-44"
-      }
-    }
-  ]
-}
-```
 """
 
 
@@ -46,17 +26,71 @@ CRITIQUE_SYSTEM = """You are auditing a draft code review. For each comment, ver
 2. The claim in `body` follows from the evidence and the diff alone.
 3. The severity is appropriate (`bug` only when the defect is asserted with proof; otherwise `question`).
 
-Output JSON, and nothing else, of the form:
-
-```json
-{
-  "keep": [0, 2],
-  "drop": [{"index": 1, "reason": "quoted_code not in diff"}]
-}
-```
+For each comment index, put it in `keep` or record it in `drop` with a reason.
 
 Be strict. When in doubt, drop.
 """
+
+
+REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {
+            "type": "string",
+            "description": "1-3 sentences describing the change and overall risk",
+        },
+        "comments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string", "description": "path/from/diff"},
+                    "line": {"type": "integer"},
+                    "severity": {"type": "string", "enum": ["bug", "question"]},
+                    "body": {"type": "string"},
+                    "evidence": {
+                        "type": "object",
+                        "properties": {
+                            "quoted_code": {
+                                "type": "string",
+                                "description": "verbatim substring of the diff",
+                            },
+                            "citation": {"type": "string", "description": "path:line or path:line-line"},
+                        },
+                        "required": ["quoted_code", "citation"],
+                        "additionalProperties": False,
+                    },
+                },
+                "required": ["file", "line", "severity", "body", "evidence"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "comments"],
+    "additionalProperties": False,
+}
+
+
+CRITIQUE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "keep": {"type": "array", "items": {"type": "integer"}},
+        "drop": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["index", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["keep", "drop"],
+    "additionalProperties": False,
+}
 
 
 def _format_files(pr: PRContext) -> str:
@@ -89,6 +123,7 @@ def build_review_messages(pr: PRContext, jira: Optional[JiraContext]) -> dict:
     return {
         "system": REVIEW_SYSTEM,
         "messages": [{"role": "user", "content": user}],
+        "schema": REVIEW_SCHEMA,
     }
 
 
@@ -119,4 +154,5 @@ def build_critique_messages(pr: PRContext, review: Review) -> dict:
     return {
         "system": CRITIQUE_SYSTEM,
         "messages": [{"role": "user", "content": user}],
+        "schema": CRITIQUE_SCHEMA,
     }
