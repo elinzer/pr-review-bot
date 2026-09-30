@@ -72,9 +72,10 @@ class GitHubClient:
             }
             for c in review.comments
         ]
+        body = review.summary if review.comments else "LGTM! _—El + Claude PR review bot_"
         created = pr.create_review(
             commit=repo.get_commit(summary.head_sha),
-            body=review.summary,
+            body=body,
             comments=comments,
         )
         return created.id

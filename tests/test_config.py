@@ -68,3 +68,29 @@ def test_load_config_invalid_poll_interval_raises(monkeypatch):
     monkeypatch.setenv("POLL_INTERVAL_SECONDS", "not-a-number")
     with pytest.raises(RuntimeError, match="POLL_INTERVAL_SECONDS"):
         load_config(load_dotenv=False)
+
+
+def test_slack_webhook_url_defaults_to_empty(monkeypatch):
+    monkeypatch.setenv("GITHUB_PAT", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setenv("JIRA_EMAIL", "x@x")
+    monkeypatch.setenv("JIRA_API_TOKEN", "x")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://x")
+    monkeypatch.setenv("GITHUB_TEAM_SLUG", "o/t")
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+
+    cfg = load_config(load_dotenv=False)
+    assert cfg.slack_webhook_url == ""
+
+
+def test_slack_webhook_url_read_from_env(monkeypatch):
+    monkeypatch.setenv("GITHUB_PAT", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setenv("JIRA_EMAIL", "x@x")
+    monkeypatch.setenv("JIRA_API_TOKEN", "x")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://x")
+    monkeypatch.setenv("GITHUB_TEAM_SLUG", "o/t")
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/AAA/BBB/ccc")
+
+    cfg = load_config(load_dotenv=False)
+    assert cfg.slack_webhook_url == "https://hooks.slack.com/services/AAA/BBB/ccc"

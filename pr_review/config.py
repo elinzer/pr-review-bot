@@ -17,6 +17,7 @@ class Config:
     state_path: str
     dry_run: bool
     log_level: str
+    slack_webhook_url: str
 
 
 _REQUIRED = (
@@ -62,4 +63,5 @@ def load_config(load_dotenv: bool = True) -> Config:
         state_path=os.environ.get("STATE_PATH", "./state.json"),
         dry_run=os.environ.get("DRY_RUN", "false").strip().lower() in ("true", "1", "yes", "on"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
+        slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL", ""),
     )

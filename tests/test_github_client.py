@@ -112,7 +112,7 @@ def test_create_pending_review_posts_to_github():
     repo.get_commit.assert_called_with("abc")
 
 
-def test_create_pending_review_empty_uses_summary_only():
+def test_create_pending_review_empty_uses_lgtm_body():
     gh = MagicMock()
     repo = MagicMock()
     pr = MagicMock()
@@ -129,5 +129,5 @@ def test_create_pending_review_empty_uses_summary_only():
     review = Review(summary="nothing high-confidence", comments=[])
     client.create_pending_review(summary, review)
     kwargs = pr.create_review.call_args.kwargs
-    assert kwargs["body"] == "nothing high-confidence"
+    assert kwargs["body"] == "LGTM! _—El + Claude PR review bot_"
     assert kwargs["comments"] == []
