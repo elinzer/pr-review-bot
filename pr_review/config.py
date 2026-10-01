@@ -18,6 +18,7 @@ class Config:
     log_level: str
     slack_webhook_url: str
     jira_project_keys: tuple[str, ...]
+    events_path: str
 
 
 _REQUIRED = (
@@ -60,4 +61,5 @@ def load_config(load_dotenv: bool = True) -> Config:
         jira_project_keys=tuple(
             k.strip().upper() for k in os.environ.get("JIRA_PROJECT_KEYS", "").split(",") if k.strip()
         ),
+        events_path=os.environ.get("EVENTS_PATH", "./reviews.jsonl"),
     )
