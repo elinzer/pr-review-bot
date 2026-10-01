@@ -117,7 +117,7 @@ class GitHubClient:
         return [
             SubmittedComment(
                 path=c.path,
-                line=c.line if c.line is not None else c.original_line,
+                line=c.original_line if c.original_line is not None else c.line,
                 body=c.body or "",
             )
             for c in pr.get_single_review_comments(review_id)

@@ -230,14 +230,14 @@ def test_get_pr_status(merged, state, expected):
     assert client.get_pr_status("o/r", 5) == expected
 
 
-def test_get_review_comments_falls_back_to_original_line():
+def test_get_review_comments_prefers_original_line_and_falls_back_to_line():
     client, _, pr = _client_with_pr()
     pr.get_single_review_comments.return_value = [
         MagicMock(path="a.py", line=10, original_line=9, body="x"),
-        MagicMock(path="b.py", line=None, original_line=4, body=None),
+        MagicMock(path="b.py", line=4, original_line=None, body=None),
     ]
     assert client.get_review_comments("o/r", 5, 99) == [
-        SubmittedComment(path="a.py", line=10, body="x"),
+        SubmittedComment(path="a.py", line=9, body="x"),
         SubmittedComment(path="b.py", line=4, body=""),
     ]
     pr.get_single_review_comments.assert_called_with(99)

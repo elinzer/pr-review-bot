@@ -41,3 +41,11 @@ def test_append_failure_logs_and_does_not_raise(tmp_path, caplog):
     with caplog.at_level(logging.ERROR, logger="pr_review"):
         EventLog(directory).append("review_created", pr_url="u")
     assert any("Failed to write review_created" in r.message for r in caplog.records)
+
+
+def test_read_tolerates_non_utf8_bytes(tmp_path):
+    path = tmp_path / "reviews.jsonl"
+    path.write_bytes(b'{"type": "x", "ts": "t"}\n\xff\xfe\n')
+    events, unreadable = EventLog(path).read()
+    assert len(events) == 1
+    assert unreadable == 1

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from unittest.mock import MagicMock
 
 from pr_review.config import load_config
@@ -86,6 +87,18 @@ def test_unpriced_model_is_counted_not_costed():
     assert "unpriced" in render(s)
 
 
+def test_usage_entry_model_overrides_event_model_and_unknown_entry_is_unpriced():
+    created = _created(1, usage=())
+    created["usage"] = [
+        {"model": "claude-opus-4-7", "input_tokens": 1_000_000, "output_tokens": 0},
+        {"model": "claude-unknown-9", "input_tokens": 1_000_000, "output_tokens": 0},
+        {"input_tokens": 1_000_000, "output_tokens": 0},
+    ]
+    s = compute([created])
+    assert round(s.cost_total, 6) == round(PRICES["claude-opus-4-7"][0] + PRICES["claude-opus-5-5"][0], 6)
+    assert s.unpriced_calls == 1
+
+
 def test_outcome_missing_fields_treated_as_pending():
     events = [_created(1), {"type": "review_outcome", "ts": T0, "pr_url": "https://github.com/o/r/pull/1", "review_id": 1}]
     s = compute(events)
@@ -166,6 +179,18 @@ def test_digest_boundary():
     assert digest_boundary(MONDAY_0900) == MONDAY_0900
     assert digest_boundary(MONDAY_0859) == MONDAY_0900 - timedelta(days=7)
     assert digest_boundary(WEDNESDAY) == MONDAY_0900
+
+
+def test_digest_not_due_again_on_fall_back_sunday():
+    chicago = ZoneInfo("America/Chicago")
+    sent = _sent(datetime(2026, 10, 26, 9, 0, tzinfo=chicago))
+    assert digest_due([sent], datetime(2026, 11, 1, 3, 0, tzinfo=chicago)) is False
+
+
+def test_digest_boundary_uses_boundary_dates_own_offset():
+    chicago = ZoneInfo("America/Chicago")
+    boundary = digest_boundary(datetime(2026, 11, 3, 12, 0, tzinfo=chicago))
+    assert boundary == datetime(2026, 11, 2, 15, 0, tzinfo=timezone.utc)
 
 
 def test_digest_due_first_run_then_not_again():

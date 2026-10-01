@@ -132,6 +132,7 @@ class Reviewer:
             extra_body={"fallbacks": "default"},
         )
         self.last_usage.append({
+            "model": resp.model,
             "input_tokens": resp.usage.input_tokens,
             "output_tokens": resp.usage.output_tokens,
         })

@@ -89,6 +89,12 @@ def test_post_text_posts_and_returns_true(requests_mock):
     assert requests_mock.last_request.json() == {"text": "hello"}
 
 
+def test_post_text_escapes_slack_control_characters(requests_mock):
+    requests_mock.post(WEBHOOK, text="ok")
+    SlackNotifier(webhook_url=WEBHOOK).post_text("a & b <!channel> <http://x|y>")
+    assert requests_mock.last_request.json() == {"text": "a &amp; b &lt;!channel&gt; &lt;http://x|y&gt;"}
+
+
 def test_post_text_no_webhook_returns_false(requests_mock):
     assert SlackNotifier(webhook_url="").post_text("hello") is False
     assert requests_mock.call_count == 0

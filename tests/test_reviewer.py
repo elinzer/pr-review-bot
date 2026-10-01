@@ -165,8 +165,9 @@ def _text_block(text):
     return SimpleNamespace(type="text", text=text)
 
 
-def _resp(content, stop_reason="end_turn", stop_details=None, usage=(10, 5)):
+def _resp(content, stop_reason="end_turn", stop_details=None, usage=(10, 5), model="claude-opus-5-5"):
     return SimpleNamespace(
+        model=model,
         content=content,
         stop_reason=stop_reason,
         stop_details=stop_details,
@@ -391,8 +392,8 @@ def test_review_pr_records_usage_for_both_calls():
     r = Reviewer(client=client, model="claude-opus-5-5")
     r.review_pr(_ctx(), None)
     assert r.last_usage == [
-        {"input_tokens": 10, "output_tokens": 5},
-        {"input_tokens": 10, "output_tokens": 5},
+        {"model": "claude-opus-5-5", "input_tokens": 10, "output_tokens": 5},
+        {"model": "claude-opus-5-5", "input_tokens": 10, "output_tokens": 5},
     ]
 
 
@@ -408,4 +409,11 @@ def test_review_pr_records_usage_when_refused():
     r = Reviewer(client=_client_returning(resp), model="claude-opus-5-5")
     with pytest.raises(ValueError):
         r.review_pr(_ctx(), None)
-    assert r.last_usage == [{"input_tokens": 700, "output_tokens": 0}]
+    assert r.last_usage == [{"model": "claude-opus-5-5", "input_tokens": 700, "output_tokens": 0}]
+
+
+def test_usage_records_model_that_served_the_call():
+    resp = _resp([_text_block(json.dumps({"summary": "s", "comments": []}))], model="claude-opus-4-7")
+    r = Reviewer(client=_client_returning(resp), model="claude-opus-5-5")
+    r.review_pr(_ctx(), None)
+    assert r.last_usage[0]["model"] == "claude-opus-4-7"

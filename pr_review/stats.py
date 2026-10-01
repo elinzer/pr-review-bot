@@ -1,7 +1,7 @@
 import argparse
 import statistics
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
 from pr_review.config import load_config
@@ -71,11 +71,16 @@ def _in_range(value: str, since: Optional[datetime], until: Optional[datetime]) 
     return (since is None or t >= since) and (until is None or t < until)
 
 
-def _cost(model: Optional[str], usage: list[dict]) -> Optional[float]:
-    price = PRICES.get(model or "")
-    if price is None:
-        return None
-    return sum(u["input_tokens"] * price[0] + u["output_tokens"] * price[1] for u in usage) / 1_000_000
+def _cost(model: Optional[str], usage: list[dict]) -> tuple[float, int]:
+    total = 0.0
+    unpriced = 0
+    for u in usage:
+        price = PRICES.get(u.get("model") or model or "")
+        if price is None:
+            unpriced += 1
+            continue
+        total += (u["input_tokens"] * price[0] + u["output_tokens"] * price[1]) / 1_000_000
+    return total, unpriced
 
 
 def _pr_label(created: dict) -> str:
@@ -102,13 +107,11 @@ def compute(
         if e["type"] not in ("review_created", "review_failed") or not _in_range(e["ts"], since, until):
             continue
         usage = e.get("usage") or []
-        cost = _cost(e.get("model"), usage)
-        if cost is None:
-            stats.unpriced_calls += len(usage)
-        else:
-            stats.cost_total += cost
-            if e["type"] == "review_failed" or e.get("dry_run"):
-                stats.cost_overhead += cost
+        cost, unpriced = _cost(e.get("model"), usage)
+        stats.unpriced_calls += unpriced
+        stats.cost_total += cost
+        if e["type"] == "review_failed" or e.get("dry_run"):
+            stats.cost_overhead += cost
         if e["type"] != "review_created" or e.get("dry_run"):
             continue
 
@@ -217,10 +220,18 @@ DIGEST_WEEKDAY = 0
 DIGEST_HOUR = 9
 
 
+def _digest_instant(day: date, now: datetime) -> datetime:
+    naive = datetime.combine(day, time(DIGEST_HOUR))
+    tz = now.tzinfo
+    if isinstance(tz, timezone) and now.astimezone().utcoffset() == now.utcoffset():
+        return naive.astimezone()
+    return naive.replace(tzinfo=tz)
+
+
 def digest_boundary(now: datetime) -> datetime:
-    day = now - timedelta(days=(now.weekday() - DIGEST_WEEKDAY) % 7)
-    boundary = day.replace(hour=DIGEST_HOUR, minute=0, second=0, microsecond=0)
-    return boundary if boundary <= now else boundary - timedelta(days=7)
+    day = now.date() - timedelta(days=(now.weekday() - DIGEST_WEEKDAY) % 7)
+    boundary = _digest_instant(day, now)
+    return boundary if boundary <= now else _digest_instant(day - timedelta(days=7), now)
 
 
 def digest_due(events: list[dict], now: datetime) -> bool:

@@ -41,8 +41,9 @@ class SlackNotifier:
         if self.dry_run:
             log.info("[DRY_RUN] Would post to Slack: %s", text)
             return True
+        escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         try:
-            resp = self.session.post(self.webhook_url, json={"text": text}, timeout=5)
+            resp = self.session.post(self.webhook_url, json={"text": escaped}, timeout=5)
             resp.raise_for_status()
         except Exception as e:
             log.warning("Slack post failed: %s", e)

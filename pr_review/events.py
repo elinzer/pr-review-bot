@@ -24,7 +24,7 @@ class EventLog:
             return [], 0
         events = []
         unreadable = 0
-        for line in self.path.read_text().splitlines():
+        for line in self.path.read_text(encoding="utf-8", errors="replace").splitlines():
             if not line.strip():
                 continue
             try:
