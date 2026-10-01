@@ -282,6 +282,10 @@ def test_get_pr_context_collects_human_discussion_in_time_order():
         issue_comments=[
             MagicMock(user=_user("author"), body="The loop is intentional, see ticket", created_at=_at(7)),
             MagicMock(user=_user("coverage", "Bot"), body="Coverage 90%", created_at=_at(8)),
+            MagicMock(user=_user("acme-ci-bot"), body="Pushed base image", created_at=_at(9)),
+            MagicMock(user=_user("dependabot[bot]"), body="Bump x", created_at=_at(10)),
+            MagicMock(user=_user("Deploy_Bot"), body="Deployed", created_at=_at(11)),
+            MagicMock(user=_user("abbot"), body="Human named abbot", created_at=_at(12)),
         ],
     )
     discussion = client.get_pr_context(summary).discussion
@@ -290,6 +294,7 @@ def test_get_pr_context_collects_human_discussion_in_time_order():
         ("dave", None, None, False),
         ("alice", "a.py", 12, False),
         ("author", None, None, False),
+        ("abbot", None, None, False),
     ]
     assert discussion[3].body == "The loop is intentional, see ticket"
 

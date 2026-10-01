@@ -134,7 +134,10 @@ class GitHubClient:
 
 
 def _is_human(user) -> bool:
-    return user is not None and getattr(user, "type", "") != "Bot"
+    if user is None or getattr(user, "type", "") == "Bot":
+        return False
+    login = (getattr(user, "login", "") or "").lower()
+    return not login.endswith(("-bot", "_bot", "[bot]"))
 
 
 def _has_text(body: Optional[str]) -> bool:
