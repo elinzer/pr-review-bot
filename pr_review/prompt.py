@@ -18,6 +18,8 @@ Rules — non-negotiable:
 6. **At most 5 comments.** Prioritize the highest-impact issues.
 7. **Line numbers** refer to the line number in the *new* version of the file (the right side of the unified diff — what you'd see on GitHub's "Files changed" tab).
 8. **Jira ticket (when present)** describes the intended behavior. Use it to understand what the change is meant to do, so you can tell a deliberate behavior change from a defect. Do not comment on whether the ticket is fully implemented.
+9. **Existing discussion (when present)** is what reviewers and the author have already said on this PR. Do not raise a point it already raises.
+10. **Explained issues.** If an existing comment explains or addresses something you would flag, you may raise it only as a `question` that references that explanation, never as a `bug`. The diff may still contradict the explanation, but a person has made a claim and should be asked, not overruled.
 """
 
 
@@ -26,6 +28,7 @@ CRITIQUE_SYSTEM = """You are auditing a draft code review. For each comment, ver
 1. `evidence.quoted_code` appears verbatim in the diff context shown.
 2. The claim in `body` follows from the evidence and the diff. The Jira ticket, when present, tells you the intended behavior; it is not evidence of what the code does.
 3. The severity is appropriate (`bug` only when the defect is asserted with proof; otherwise `question`).
+4. The comment does not repeat a point already raised in the existing discussion, when present.
 
 For each comment index, put it in `keep` or record it in `drop` with a reason.
 
@@ -119,6 +122,19 @@ def _jira_section(jira: Optional[JiraContext]) -> str:
     return f"## Jira context\n{_format_jira(jira)}\n\n" if jira is not None else ""
 
 
+def _discussion_section(pr: PRContext) -> str:
+    if not pr.discussion:
+        return ""
+    lines = []
+    for d in pr.discussion:
+        where = ""
+        if d.path:
+            where = f"{d.path}:{d.line}{' (outdated)' if d.outdated else ''} — "
+        body = d.body.replace("\n", "\n  ")
+        lines.append(f"- {where}@{d.author}: {body}")
+    return "## Existing discussion\n" + "\n".join(lines) + "\n\n"
+
+
 def build_review_messages(pr: PRContext, jira: Optional[JiraContext]) -> dict:
     user = (
         f"# Pull request\n\n"
@@ -127,6 +143,7 @@ def build_review_messages(pr: PRContext, jira: Optional[JiraContext]) -> dict:
         f"Branch: {pr.summary.branch}\n\n"
         f"## PR body\n{pr.summary.body or '(empty)'}\n\n"
         f"{_jira_section(jira)}"
+        f"{_discussion_section(pr)}"
         f"## Diff\n{_format_files(pr)}\n"
     )
     return {
@@ -158,6 +175,7 @@ def build_critique_messages(pr: PRContext, review: Review, jira: Optional[JiraCo
     )
     user = (
         f"{_jira_section(jira)}"
+        f"{_discussion_section(pr)}"
         f"## Diff\n{_format_files(pr)}\n\n"
         f"## Draft review\n```json\n{review_json}\n```"
     )

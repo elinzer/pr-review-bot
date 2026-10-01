@@ -23,10 +23,21 @@ class FileChange:
 
 
 @dataclass(frozen=True)
+class DiscussionComment:
+    author: str
+    body: str
+    created_at: str
+    path: Optional[str] = None
+    line: Optional[int] = None
+    outdated: bool = False
+
+
+@dataclass(frozen=True)
 class PRContext:
     summary: PullRequestSummary
     files: list[FileChange]
     other_changes: list[str] = field(default_factory=list)
+    discussion: list[DiscussionComment] = field(default_factory=list)
 
     @property
     def changed_file_paths(self) -> set[str]:

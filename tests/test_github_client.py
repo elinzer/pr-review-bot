@@ -4,7 +4,9 @@ from unittest.mock import MagicMock
 
 from github import GithubException
 
-from pr_review.github_client import SIGNATURE, GitHubClient, format_comment_body, review_body
+from pr_review.github_client import (
+    MAX_DISCUSSION_CHARS, MAX_DISCUSSION_COMMENTS, SIGNATURE, GitHubClient, format_comment_body, review_body,
+)
 from pr_review.models import Comment, Evidence, PullRequestSummary, Review, ReviewSnapshot, SubmittedComment
 
 
@@ -241,3 +243,69 @@ def test_get_review_comments_prefers_original_line_and_falls_back_to_line():
         SubmittedComment(path="b.py", line=4, body=""),
     ]
     pr.get_single_review_comments.assert_called_with(99)
+
+
+def _user(login, kind="User"):
+    return MagicMock(login=login, type=kind)
+
+
+def _at(minute):
+    return datetime(2026, 10, 1, 12, minute, tzinfo=timezone.utc)
+
+
+def _pr_with_discussion(review_comments=(), reviews=(), issue_comments=()):
+    gh = MagicMock()
+    pr = gh.get_repo.return_value.get_pull.return_value
+    pr.get_files.return_value = []
+    pr.get_review_comments.return_value = list(review_comments)
+    pr.get_reviews.return_value = list(reviews)
+    pr.get_issue_comments.return_value = list(issue_comments)
+    summary = PullRequestSummary(
+        url="u", repo_full_name="o/r", number=1, title="t", head_sha="s", body="b", branch="br",
+    )
+    return GitHubClient(github=gh, team_slug="o/team"), summary
+
+
+def test_get_pr_context_collects_human_discussion_in_time_order():
+    client, summary = _pr_with_discussion(
+        review_comments=[
+            MagicMock(user=_user("alice"), body="Off by one?", path="a.py", line=12, original_line=12, created_at=_at(5)),
+            MagicMock(user=_user("ci-bot", "Bot"), body="lint", path="a.py", line=3, original_line=3, created_at=_at(1)),
+            MagicMock(user=_user("bob"), body="Old note", path="b.py", line=None, original_line=7, created_at=_at(2)),
+            MagicMock(user=_user("carol"), body="   ", path="a.py", line=1, original_line=1, created_at=_at(3)),
+        ],
+        reviews=[
+            MagicMock(user=_user("dave"), body="Looks mostly fine", state="COMMENTED", submitted_at=_at(4)),
+            MagicMock(user=_user("elinzer"), body="draft", state="PENDING", submitted_at=None),
+            MagicMock(user=_user("erin"), body="", state="APPROVED", submitted_at=_at(6)),
+        ],
+        issue_comments=[
+            MagicMock(user=_user("author"), body="The loop is intentional, see ticket", created_at=_at(7)),
+            MagicMock(user=_user("coverage", "Bot"), body="Coverage 90%", created_at=_at(8)),
+            MagicMock(user=_user("acme-ci-bot"), body="Pushed base image", created_at=_at(9)),
+            MagicMock(user=_user("dependabot[bot]"), body="Bump x", created_at=_at(10)),
+            MagicMock(user=_user("Deploy_Bot"), body="Deployed", created_at=_at(11)),
+            MagicMock(user=_user("abbot"), body="Human named abbot", created_at=_at(12)),
+        ],
+    )
+    discussion = client.get_pr_context(summary).discussion
+    assert [(d.author, d.path, d.line, d.outdated) for d in discussion] == [
+        ("bob", "b.py", 7, True),
+        ("dave", None, None, False),
+        ("alice", "a.py", 12, False),
+        ("author", None, None, False),
+        ("abbot", None, None, False),
+    ]
+    assert discussion[3].body == "The loop is intentional, see ticket"
+
+
+def test_get_pr_context_caps_and_truncates_discussion():
+    issue_comments = [
+        MagicMock(user=_user(f"u{i}"), body=f"comment {i}", created_at=_at(i)) for i in range(35)
+    ]
+    issue_comments[34].body = "x" * (MAX_DISCUSSION_CHARS + 50)
+    client, summary = _pr_with_discussion(issue_comments=issue_comments)
+    discussion = client.get_pr_context(summary).discussion
+    assert len(discussion) == MAX_DISCUSSION_COMMENTS
+    assert discussion[0].author == "u5"
+    assert discussion[-1].body == "x" * MAX_DISCUSSION_CHARS + "…"

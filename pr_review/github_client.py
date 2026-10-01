@@ -5,11 +5,15 @@ from typing import Optional
 
 from github import Github, GithubException
 
-from pr_review.models import Comment, FileChange, PRContext, PullRequestSummary, Review, ReviewSnapshot, SubmittedComment
+from pr_review.models import (
+    Comment, DiscussionComment, FileChange, PRContext, PullRequestSummary, Review, ReviewSnapshot, SubmittedComment,
+)
 
 
 SIGNATURE = "_—El + Claude PR review bot_"
 LGTM_BODY = f"LGTM! {SIGNATURE}"
+MAX_DISCUSSION_COMMENTS = 30
+MAX_DISCUSSION_CHARS = 1000
 
 
 @dataclass
@@ -70,7 +74,12 @@ class GitHubClient:
                 deletions=f.deletions,
                 previous_path=f.previous_filename if renamed else "",
             ))
-        return PRContext(summary=summary, files=files, other_changes=other_changes)
+        return PRContext(
+            summary=summary,
+            files=files,
+            other_changes=other_changes,
+            discussion=_get_discussion(pr),
+        )
 
     def create_pending_review(self, summary: PullRequestSummary, review: Review) -> int:
         repo = self.github.get_repo(summary.repo_full_name)
@@ -122,6 +131,55 @@ class GitHubClient:
             )
             for c in pr.get_single_review_comments(review_id)
         ]
+
+
+def _is_human(user) -> bool:
+    if user is None or getattr(user, "type", "") == "Bot":
+        return False
+    login = (getattr(user, "login", "") or "").lower()
+    return not login.endswith(("-bot", "_bot", "[bot]"))
+
+
+def _has_text(body: Optional[str]) -> bool:
+    return bool((body or "").strip())
+
+
+def _truncate(body: str) -> str:
+    text = body.strip()
+    return text if len(text) <= MAX_DISCUSSION_CHARS else text[:MAX_DISCUSSION_CHARS] + "…"
+
+
+def _get_discussion(pr) -> list[DiscussionComment]:
+    discussion = []
+    for c in pr.get_review_comments():
+        if not _is_human(c.user) or not _has_text(c.body):
+            continue
+        discussion.append(DiscussionComment(
+            author=c.user.login,
+            body=_truncate(c.body),
+            created_at=c.created_at.isoformat(),
+            path=c.path,
+            line=c.line if c.line is not None else c.original_line,
+            outdated=c.line is None,
+        ))
+    for r in pr.get_reviews():
+        if r.state == "PENDING" or r.submitted_at is None or not _is_human(r.user) or not _has_text(r.body):
+            continue
+        discussion.append(DiscussionComment(
+            author=r.user.login,
+            body=_truncate(r.body),
+            created_at=r.submitted_at.isoformat(),
+        ))
+    for c in pr.get_issue_comments():
+        if not _is_human(c.user) or not _has_text(c.body):
+            continue
+        discussion.append(DiscussionComment(
+            author=c.user.login,
+            body=_truncate(c.body),
+            created_at=c.created_at.isoformat(),
+        ))
+    discussion.sort(key=lambda d: d.created_at)
+    return discussion[-MAX_DISCUSSION_COMMENTS:]
 
 
 def review_body(review: Review) -> str:

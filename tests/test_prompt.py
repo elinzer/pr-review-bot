@@ -1,5 +1,5 @@
 from pr_review.models import (
-    Comment, Evidence, FileChange, JiraContext, PRContext, PullRequestSummary, Review,
+    Comment, DiscussionComment, Evidence, FileChange, JiraContext, PRContext, PullRequestSummary, Review,
 )
 from pr_review.prompt import build_critique_messages, build_review_messages
 
@@ -119,3 +119,41 @@ def test_critique_messages_show_undiffed_files():
 def test_no_undiffed_section_when_empty():
     user_text = build_review_messages(_pr_context(), None)["messages"][0]["content"]
     assert "without a diff" not in user_text
+
+
+def _pr_with_discussion():
+    base = _pr_context()
+    return PRContext(
+        summary=base.summary,
+        files=base.files,
+        discussion=[
+            DiscussionComment(author="bob", body="Old note", created_at="t1", path="b.py", line=7, outdated=True),
+            DiscussionComment(author="author", body="Intentional.\nSee ticket.", created_at="t2"),
+        ],
+    )
+
+
+def test_review_messages_include_existing_discussion():
+    user_text = build_review_messages(_pr_with_discussion(), None)["messages"][0]["content"]
+    assert "## Existing discussion" in user_text
+    assert "- b.py:7 (outdated) — @bob: Old note" in user_text
+    assert "- @author: Intentional.\n  See ticket." in user_text
+    assert user_text.index("## Existing discussion") < user_text.index("## Diff")
+
+
+def test_critique_messages_include_existing_discussion():
+    review = Review(summary="s", comments=[])
+    user_text = build_critique_messages(_pr_with_discussion(), review)["messages"][0]["content"]
+    assert "- @author: Intentional." in user_text
+
+
+def test_no_discussion_section_when_empty():
+    assert "Existing discussion" not in build_review_messages(_pr_context(), None)["messages"][0]["content"]
+
+
+def test_system_prompts_cover_existing_discussion():
+    review_system = build_review_messages(_pr_context(), None)["system"]
+    critique_system = build_critique_messages(_pr_context(), Review(summary="s", comments=[]))["system"]
+    assert "existing discussion" in review_system.lower()
+    assert "only as a `question`" in review_system
+    assert "existing discussion" in critique_system.lower()
