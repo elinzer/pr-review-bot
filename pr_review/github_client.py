@@ -1,10 +1,15 @@
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from github import Github, GithubException
 
-from pr_review.models import Comment, FileChange, PRContext, PullRequestSummary, Review
+from pr_review.models import Comment, FileChange, PRContext, PullRequestSummary, Review, ReviewSnapshot, SubmittedComment
+
+
+SIGNATURE = "_—El + Claude PR review bot_"
+LGTM_BODY = f"LGTM! {SIGNATURE}"
 
 
 @dataclass
@@ -75,11 +80,11 @@ class GitHubClient:
                 "path": c.file,
                 "line": c.line,
                 "side": "RIGHT",
-                "body": _format_comment_body(c),
+                "body": format_comment_body(c),
             }
             for c in review.comments
         ]
-        body = review.summary if review.comments else "LGTM! _—El + Claude PR review bot_"
+        body = review_body(review)
         created = pr.create_review(
             commit=repo.get_commit(summary.head_sha),
             body=body,
@@ -87,11 +92,46 @@ class GitHubClient:
         )
         return created.id
 
+    def get_review(self, repo_full_name: str, number: int, review_id: int) -> Optional[ReviewSnapshot]:
+        pr = self.github.get_repo(repo_full_name).get_pull(number)
+        try:
+            r = pr.get_review(review_id)
+        except GithubException as e:
+            if e.status == 404:
+                return None
+            raise
+        return ReviewSnapshot(
+            state=r.state,
+            body=r.body or "",
+            submitted_at=r.submitted_at.isoformat() if r.submitted_at else None,
+        )
 
-def _format_comment_body(c: Comment) -> str:
+    def get_pr_status(self, repo_full_name: str, number: int) -> str:
+        pr = self.github.get_repo(repo_full_name).get_pull(number)
+        if pr.merged:
+            return "merged"
+        return pr.state
+
+    def get_review_comments(self, repo_full_name: str, number: int, review_id: int) -> list[SubmittedComment]:
+        pr = self.github.get_repo(repo_full_name).get_pull(number)
+        return [
+            SubmittedComment(
+                path=c.path,
+                line=c.line if c.line is not None else c.original_line,
+                body=c.body or "",
+            )
+            for c in pr.get_single_review_comments(review_id)
+        ]
+
+
+def review_body(review: Review) -> str:
+    return review.summary if review.comments else LGTM_BODY
+
+
+def format_comment_body(c: Comment) -> str:
     prefix = "**[bug]**" if c.severity == "bug" else "**[question]**"
     body = f"{prefix} {c.body}\n\n_Evidence:_ `{c.evidence.citation}`"
     if c.evidence.quoted_code:
         body += f"\n\n```\n{c.evidence.quoted_code}\n```"
-    body += "\n\n_—El + Claude PR review bot_"
+    body += f"\n\n{SIGNATURE}"
     return body
