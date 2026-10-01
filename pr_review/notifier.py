@@ -35,6 +35,20 @@ class SlackNotifier:
         except Exception as e:
             log.warning("Slack notify failed for %s: %s", summary.url, e)
 
+    def post_text(self, text: str) -> bool:
+        if not self.webhook_url:
+            return False
+        if self.dry_run:
+            log.info("[DRY_RUN] Would post to Slack: %s", text)
+            return True
+        try:
+            resp = self.session.post(self.webhook_url, json={"text": text}, timeout=5)
+            resp.raise_for_status()
+        except Exception as e:
+            log.warning("Slack post failed: %s", e)
+            return False
+        return True
+
     @staticmethod
     def _format_message(summary: PullRequestSummary, review: Review) -> str:
         n = len(review.comments)

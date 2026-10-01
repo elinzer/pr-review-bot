@@ -213,6 +213,37 @@ def render(stats: Stats) -> str:
     return "\n".join(lines)
 
 
+DIGEST_WEEKDAY = 0
+DIGEST_HOUR = 9
+
+
+def digest_boundary(now: datetime) -> datetime:
+    day = now - timedelta(days=(now.weekday() - DIGEST_WEEKDAY) % 7)
+    boundary = day.replace(hour=DIGEST_HOUR, minute=0, second=0, microsecond=0)
+    return boundary if boundary <= now else boundary - timedelta(days=7)
+
+
+def digest_due(events: list[dict], now: datetime) -> bool:
+    boundary = digest_boundary(now)
+    return not any(
+        e["type"] == "digest_sent" and _ts(e.get("period_end") or e["ts"]) >= boundary
+        for e in events
+    )
+
+
+def maybe_send_digest(event_log: EventLog, notifier, now: datetime) -> bool:
+    events, unreadable = event_log.read()
+    if not digest_due(events, now):
+        return False
+    boundary = digest_boundary(now)
+    since = boundary - timedelta(days=7)
+    text = render(compute(events, since, boundary, unreadable_lines=unreadable))
+    if not notifier.post_text(text):
+        return False
+    event_log.append("digest_sent", period_start=since.isoformat(), period_end=boundary.isoformat())
+    return True
+
+
 def _local_day_start(value: str) -> datetime:
     return datetime.combine(date.fromisoformat(value), datetime.min.time()).astimezone()
 

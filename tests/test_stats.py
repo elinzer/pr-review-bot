@@ -1,7 +1,9 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
 
 from pr_review.config import load_config
-from pr_review.stats import PRICES, compute, main, render
+from pr_review.events import EventLog
+from pr_review.stats import PRICES, compute, digest_boundary, digest_due, main, maybe_send_digest, render
 
 T0 = "2026-10-06T12:00:00+00:00"
 
@@ -145,3 +147,56 @@ def test_cli_prints_report(tmp_path, monkeypatch, capsys):
     assert main(["--since", "2026-10-01", "--until", "2026-10-07"]) == 0
     out = capsys.readouterr().out
     assert "2026-10-01 to 2026-10-07" in out
+
+
+LOCAL = timezone(timedelta(hours=-5))
+MONDAY_0859 = datetime(2026, 10, 5, 8, 59, tzinfo=LOCAL)
+MONDAY_0900 = datetime(2026, 10, 5, 9, 0, tzinfo=LOCAL)
+WEDNESDAY = datetime(2026, 10, 7, 14, 0, tzinfo=LOCAL)
+
+
+def _sent(boundary: datetime) -> dict:
+    return {
+        "type": "digest_sent", "ts": boundary.isoformat(),
+        "period_start": (boundary - timedelta(days=7)).isoformat(), "period_end": boundary.isoformat(),
+    }
+
+
+def test_digest_boundary():
+    assert digest_boundary(MONDAY_0900) == MONDAY_0900
+    assert digest_boundary(MONDAY_0859) == MONDAY_0900 - timedelta(days=7)
+    assert digest_boundary(WEDNESDAY) == MONDAY_0900
+
+
+def test_digest_due_first_run_then_not_again():
+    assert digest_due([], WEDNESDAY) is True
+    assert digest_due([_sent(MONDAY_0900)], WEDNESDAY + timedelta(minutes=15)) is False
+
+
+def test_digest_due_boundary_and_late_send():
+    last_week = _sent(MONDAY_0900 - timedelta(days=7))
+    assert digest_due([last_week], MONDAY_0859) is False
+    assert digest_due([last_week], MONDAY_0900) is True
+    assert digest_due([last_week], WEDNESDAY) is True
+    assert digest_due([last_week, _sent(MONDAY_0900)], WEDNESDAY) is False
+
+
+def test_maybe_send_digest_posts_previous_week_and_records(tmp_path):
+    log = EventLog(tmp_path / "reviews.jsonl")
+    notifier = MagicMock()
+    notifier.post_text.return_value = True
+    assert maybe_send_digest(log, notifier, WEDNESDAY) is True
+    text = notifier.post_text.call_args[0][0]
+    assert "2026-09-28 to 2026-10-05" in text
+    sent = [e for e in log.read()[0] if e["type"] == "digest_sent"]
+    assert len(sent) == 1
+    assert maybe_send_digest(log, notifier, WEDNESDAY + timedelta(minutes=15)) is False
+    assert notifier.post_text.call_count == 1
+
+
+def test_maybe_send_digest_failure_does_not_record(tmp_path):
+    log = EventLog(tmp_path / "reviews.jsonl")
+    notifier = MagicMock()
+    notifier.post_text.return_value = False
+    assert maybe_send_digest(log, notifier, WEDNESDAY) is False
+    assert log.read()[0] == []

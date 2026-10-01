@@ -81,3 +81,28 @@ def test_notify_swallows_network_error(requests_mock, caplog):
 
     assert any("Slack notify failed" in r.message for r in caplog.records)
     assert any("net down" in r.message for r in caplog.records)
+
+
+def test_post_text_posts_and_returns_true(requests_mock):
+    requests_mock.post(WEBHOOK, text="ok")
+    assert SlackNotifier(webhook_url=WEBHOOK).post_text("hello") is True
+    assert requests_mock.last_request.json() == {"text": "hello"}
+
+
+def test_post_text_no_webhook_returns_false(requests_mock):
+    assert SlackNotifier(webhook_url="").post_text("hello") is False
+    assert requests_mock.call_count == 0
+
+
+def test_post_text_dry_run_logs_and_returns_true(requests_mock, caplog):
+    with caplog.at_level(logging.INFO, logger="pr_review"):
+        assert SlackNotifier(webhook_url=WEBHOOK, dry_run=True).post_text("hello") is True
+    assert requests_mock.call_count == 0
+    assert any("[DRY_RUN] Would post to Slack" in r.message for r in caplog.records)
+
+
+def test_post_text_failure_returns_false(requests_mock, caplog):
+    requests_mock.post(WEBHOOK, status_code=500, text="boom")
+    with caplog.at_level(logging.WARNING, logger="pr_review"):
+        assert SlackNotifier(webhook_url=WEBHOOK).post_text("hello") is False
+    assert any("Slack post failed" in r.message for r in caplog.records)
