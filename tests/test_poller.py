@@ -1,12 +1,15 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+from pr_review.events import EventLog
 from pr_review.models import (
     Comment, Evidence, FileChange, PRContext, PullRequestSummary, Review,
 )
 from pr_review.poller import run_once
+from pr_review.state import State
 
 
 def _summary(url="https://github.com/o/r/pull/1"):
@@ -194,3 +197,137 @@ def test_run_once_notify_failure_does_not_unmark_review(tmp_path):
     # Second run should skip this PR — state was saved before the notify exception
     run_once(cfg, gh_client=gh, jira_client=jira, reviewer=reviewer, notifier=notifier)
     assert gh.create_pending_review.call_count == 1
+
+
+def _cfg(tmp_path, dry_run=False):
+    return SimpleNamespace(
+        jira_project_keys=(),
+        state_path=str(tmp_path / "state.json"),
+        github_team_slug="o/team",
+        dry_run=dry_run,
+        log_level="INFO",
+    )
+
+
+def _reviewer(review=None, error=None):
+    reviewer = MagicMock()
+    reviewer.model = "claude-opus-5-5"
+    reviewer.last_usage = [{"input_tokens": 100, "output_tokens": 20}]
+    if error is not None:
+        reviewer.review_pr.side_effect = error
+    else:
+        reviewer.review_pr.return_value = review or Review(summary="ok", comments=[])
+    return reviewer
+
+
+def _gh(summary):
+    gh = MagicMock()
+    gh.list_team_review_requests.return_value = [summary]
+    gh.get_pr_context.return_value = _ctx(summary)
+    gh.create_pending_review.return_value = 4242
+    return gh
+
+
+def _jira():
+    jira = MagicMock()
+    jira.fetch_ticket.return_value = None
+    return jira
+
+
+def _types(log):
+    return [e["type"] for e in log.read()[0]]
+
+
+NOW = datetime(2026, 10, 7, 14, 0, tzinfo=timezone.utc)
+THIS_WEEK = "2026-10-05T09:00:00+00:00"
+
+
+def _log_with_recent_digest(tmp_path):
+    log = EventLog(tmp_path / "reviews.jsonl")
+    log.append("digest_sent", period_start="2026-09-28T09:00:00+00:00", period_end=THIS_WEEK)
+    return log
+
+
+def test_run_once_records_created_event_with_usage(tmp_path):
+    summary = _summary()
+    comment = Comment(file="a.py", line=2, severity="bug", body="b", evidence=Evidence(quoted_code="new", citation="a.py:2"))
+    log = _log_with_recent_digest(tmp_path)
+    run_once(_cfg(tmp_path), _gh(summary), _jira(), _reviewer(Review(summary="sum", comments=[comment])), MagicMock(),
+             event_log=log, now=NOW)
+    created = [e for e in log.read()[0] if e["type"] == "review_created"][0]
+    assert created["review_id"] == 4242
+    assert created["dry_run"] is False
+    assert created["model"] == "claude-opus-5-5"
+    assert created["jira_key"] == "ABC-1"
+    assert created["usage"] == [{"input_tokens": 100, "output_tokens": 20}]
+    assert created["summary"] == "sum"
+    assert created["comments"][0]["file"] == "a.py"
+    assert created["comments"][0]["body"].startswith("**[bug]** b")
+
+
+def test_run_once_dry_run_records_created_without_review_id(tmp_path):
+    log = _log_with_recent_digest(tmp_path)
+    run_once(_cfg(tmp_path, dry_run=True), _gh(_summary()), _jira(), _reviewer(), MagicMock(),
+             event_log=log, now=NOW)
+    created = [e for e in log.read()[0] if e["type"] == "review_created"][0]
+    assert created["dry_run"] is True
+    assert created["review_id"] is None
+
+
+def test_run_once_records_failed_event_on_value_error(tmp_path):
+    log = _log_with_recent_digest(tmp_path)
+    run_once(_cfg(tmp_path), _gh(_summary()), _jira(), _reviewer(error=ValueError("bad json")), MagicMock(),
+             event_log=log, now=NOW)
+    failed = [e for e in log.read()[0] if e["type"] == "review_failed"][0]
+    assert failed["reason"] == "bad json"
+    assert failed["usage"] == [{"input_tokens": 100, "output_tokens": 20}]
+
+
+def test_run_once_marks_state_before_appending_event(tmp_path):
+    summary = _summary()
+    cfg = _cfg(tmp_path)
+    seen = []
+
+    class RecordingLog(EventLog):
+        def append(self, event_type, **fields):
+            if event_type == "review_created":
+                seen.append(State(cfg.state_path).is_reviewed(summary.url))
+            super().append(event_type, **fields)
+
+    log = RecordingLog(tmp_path / "reviews.jsonl")
+    log.append("digest_sent", period_start="2026-09-28T09:00:00+00:00", period_end=THIS_WEEK)
+    run_once(cfg, _gh(summary), _jira(), _reviewer(), MagicMock(), event_log=log, now=NOW)
+    assert seen == [True]
+
+
+def test_run_once_tracker_failure_does_not_stop_reviews(tmp_path):
+    class BrokenReadLog(EventLog):
+        def read(self):
+            raise RuntimeError("disk gone")
+
+    gh = _gh(_summary())
+    run_once(_cfg(tmp_path), gh, _jira(), _reviewer(), MagicMock(),
+             event_log=BrokenReadLog(tmp_path / "reviews.jsonl"), now=NOW)
+    gh.create_pending_review.assert_called_once()
+
+
+def test_run_once_sends_digest_when_due(tmp_path):
+    log = EventLog(tmp_path / "reviews.jsonl")
+    notifier = MagicMock()
+    notifier.post_text.return_value = True
+    gh = _gh(_summary())
+    gh.list_team_review_requests.return_value = []
+    run_once(_cfg(tmp_path), gh, _jira(), _reviewer(), notifier, event_log=log,
+             now=NOW)
+    notifier.post_text.assert_called_once()
+    assert _types(log) == ["digest_sent"]
+
+
+def test_run_once_skips_digest_when_listing_fails(tmp_path):
+    log = EventLog(tmp_path / "reviews.jsonl")
+    notifier = MagicMock()
+    gh = MagicMock()
+    gh.list_team_review_requests.side_effect = RuntimeError("401")
+    run_once(_cfg(tmp_path), gh, _jira(), _reviewer(), notifier, event_log=log,
+             now=NOW)
+    notifier.post_text.assert_not_called()

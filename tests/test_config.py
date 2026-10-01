@@ -101,3 +101,15 @@ def test_jira_project_keys_default_empty(monkeypatch):
     _required_env(monkeypatch)
     monkeypatch.delenv("JIRA_PROJECT_KEYS", raising=False)
     assert load_config(load_dotenv=False).jira_project_keys == ()
+
+
+def test_events_path_default(monkeypatch):
+    _required_env(monkeypatch)
+    monkeypatch.delenv("EVENTS_PATH", raising=False)
+    assert load_config(load_dotenv=False).events_path == "./reviews.jsonl"
+
+
+def test_events_path_override(monkeypatch):
+    _required_env(monkeypatch)
+    monkeypatch.setenv("EVENTS_PATH", "/tmp/x.jsonl")
+    assert load_config(load_dotenv=False).events_path == "/tmp/x.jsonl"

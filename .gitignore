@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 state.json
+reviews.jsonl
 *.log
 .DS_Store
 **/.DS_Store

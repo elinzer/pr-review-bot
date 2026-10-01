@@ -1,7 +1,11 @@
+import pytest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from pr_review.github_client import GitHubClient
-from pr_review.models import Comment, Evidence, PullRequestSummary, Review
+from github import GithubException
+
+from pr_review.github_client import SIGNATURE, GitHubClient, format_comment_body, review_body
+from pr_review.models import Comment, Evidence, PullRequestSummary, Review, ReviewSnapshot, SubmittedComment
 
 
 def _fake_issue(repo_full_name, number, title, html_url, body, head_sha, branch):
@@ -161,3 +165,79 @@ def test_create_pending_review_empty_uses_lgtm_body():
     kwargs = pr.create_review.call_args.kwargs
     assert kwargs["body"] == "LGTM! _—El + Claude PR review bot_"
     assert kwargs["comments"] == []
+
+
+def _client_with_pr():
+    gh = MagicMock()
+    pr = gh.get_repo.return_value.get_pull.return_value
+    return GitHubClient(github=gh, team_slug="o/team"), gh, pr
+
+
+def test_review_body_lgtm_and_summary():
+    assert review_body(Review(summary="s", comments=[])) == f"LGTM! {SIGNATURE}"
+    c = Comment(file="a.py", line=1, severity="bug", body="b", evidence=Evidence(quoted_code="q", citation="a.py:1"))
+    assert review_body(Review(summary="s", comments=[c])) == "s"
+    assert format_comment_body(c).endswith(SIGNATURE)
+
+
+def test_get_review_returns_snapshot():
+    client, gh, pr = _client_with_pr()
+    pr.get_review.return_value = MagicMock(
+        state="COMMENTED", body="final", submitted_at=datetime(2026, 10, 6, 15, 0, tzinfo=timezone.utc),
+    )
+    snap = client.get_review("o/r", 5, 99)
+    assert snap == ReviewSnapshot(state="COMMENTED", body="final", submitted_at="2026-10-06T15:00:00+00:00")
+    gh.get_repo.assert_called_with("o/r")
+    gh.get_repo.return_value.get_pull.assert_called_with(5)
+    pr.get_review.assert_called_with(99)
+
+
+def test_get_review_pending_has_no_submitted_at():
+    client, _, pr = _client_with_pr()
+    pr.get_review.return_value = MagicMock(state="PENDING", body=None, submitted_at=None)
+    assert client.get_review("o/r", 5, 99) == ReviewSnapshot(state="PENDING", body="", submitted_at=None)
+
+
+def test_get_review_404_returns_none():
+    client, _, pr = _client_with_pr()
+    pr.get_review.side_effect = GithubException(404, {"message": "Not Found"}, {})
+    assert client.get_review("o/r", 5, 99) is None
+
+
+def test_get_review_other_error_raises():
+    client, _, pr = _client_with_pr()
+    pr.get_review.side_effect = GithubException(500, {"message": "boom"}, {})
+    with pytest.raises(GithubException):
+        client.get_review("o/r", 5, 99)
+
+
+def test_get_review_pr_fetch_failure_raises():
+    client, gh, _ = _client_with_pr()
+    gh.get_repo.return_value.get_pull.side_effect = GithubException(404, {"message": "Not Found"}, {})
+    with pytest.raises(GithubException):
+        client.get_review("o/r", 5, 99)
+
+
+@pytest.mark.parametrize("merged,state,expected", [
+    (True, "closed", "merged"),
+    (False, "closed", "closed"),
+    (False, "open", "open"),
+])
+def test_get_pr_status(merged, state, expected):
+    client, _, pr = _client_with_pr()
+    pr.merged = merged
+    pr.state = state
+    assert client.get_pr_status("o/r", 5) == expected
+
+
+def test_get_review_comments_prefers_original_line_and_falls_back_to_line():
+    client, _, pr = _client_with_pr()
+    pr.get_single_review_comments.return_value = [
+        MagicMock(path="a.py", line=10, original_line=9, body="x"),
+        MagicMock(path="b.py", line=4, original_line=None, body=None),
+    ]
+    assert client.get_review_comments("o/r", 5, 99) == [
+        SubmittedComment(path="a.py", line=9, body="x"),
+        SubmittedComment(path="b.py", line=4, body=""),
+    ]
+    pr.get_single_review_comments.assert_called_with(99)

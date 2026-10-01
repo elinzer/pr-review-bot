@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional
 
 
 @dataclass(frozen=True)
@@ -64,3 +64,17 @@ class Comment:
 class Review:
     summary: str
     comments: list[Comment] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ReviewSnapshot:
+    state: str
+    body: str
+    submitted_at: Optional[str]
+
+
+@dataclass(frozen=True)
+class SubmittedComment:
+    path: str
+    line: Optional[int]
+    body: str
