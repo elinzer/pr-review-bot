@@ -165,8 +165,13 @@ def _text_block(text):
     return SimpleNamespace(type="text", text=text)
 
 
-def _resp(content, stop_reason="end_turn", stop_details=None):
-    return SimpleNamespace(content=content, stop_reason=stop_reason, stop_details=stop_details)
+def _resp(content, stop_reason="end_turn", stop_details=None, usage=(10, 5)):
+    return SimpleNamespace(
+        content=content,
+        stop_reason=stop_reason,
+        stop_details=stop_details,
+        usage=SimpleNamespace(input_tokens=usage[0], output_tokens=usage[1]),
+    )
 
 
 class _FakeAnthropic:
@@ -372,3 +377,35 @@ def test_self_critique_malformed_json_returns_empty():
     out = r.self_critique(review, _ctx())
     assert out.comments == []
     assert out.summary == "s"
+
+
+def test_review_pr_records_usage_for_both_calls():
+    review_resp = json.dumps({
+        "summary": "s",
+        "comments": [{
+            "file": "app/login.py", "line": 3, "severity": "bug", "body": "b",
+            "evidence": {"quoted_code": "return x", "citation": "app/login.py:3"},
+        }],
+    })
+    client = _SeqAnthropic(review_resp, json.dumps({"keep": [0], "drop": []}))
+    r = Reviewer(client=client, model="claude-opus-5-5")
+    r.review_pr(_ctx(), None)
+    assert r.last_usage == [
+        {"input_tokens": 10, "output_tokens": 5},
+        {"input_tokens": 10, "output_tokens": 5},
+    ]
+
+
+def test_review_pr_resets_usage_between_calls():
+    r = Reviewer(client=_FakeAnthropic(json.dumps({"summary": "s", "comments": []})), model="claude-opus-5-5")
+    r.review_pr(_ctx(), None)
+    r.review_pr(_ctx(), None)
+    assert len(r.last_usage) == 1
+
+
+def test_review_pr_records_usage_when_refused():
+    resp = _resp([], stop_reason="refusal", stop_details=SimpleNamespace(category="cyber"), usage=(700, 0))
+    r = Reviewer(client=_client_returning(resp), model="claude-opus-5-5")
+    with pytest.raises(ValueError):
+        r.review_pr(_ctx(), None)
+    assert r.last_usage == [{"input_tokens": 700, "output_tokens": 0}]

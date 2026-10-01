@@ -1,6 +1,6 @@
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from pr_review.models import Comment, Evidence, JiraContext, PRContext, Review
@@ -116,6 +116,7 @@ class Reviewer:
     model: str
     effort: str = "high"
     max_tokens: int = 16000
+    last_usage: list[dict] = field(default_factory=list)
 
     def _call(self, system: str, messages: list[dict], schema: dict) -> str:
         resp = self.client.beta.messages.create(
@@ -130,6 +131,10 @@ class Reviewer:
             betas=[FALLBACK_BETA],
             extra_body={"fallbacks": "default"},
         )
+        self.last_usage.append({
+            "input_tokens": resp.usage.input_tokens,
+            "output_tokens": resp.usage.output_tokens,
+        })
         if resp.stop_reason == "refusal":
             raise ValueError(f"Anthropic refused the request: {resp.stop_details}")
         if resp.stop_reason == "max_tokens":
@@ -163,6 +168,7 @@ class Reviewer:
         return Review(summary=review.summary, comments=filtered)
 
     def review_pr(self, pr: PRContext, jira: Optional[JiraContext]) -> Review:
+        self.last_usage = []
         draft = self.review(pr, jira)
         critiqued = self.self_critique(draft, pr, jira)
         return validate(critiqued, pr)
